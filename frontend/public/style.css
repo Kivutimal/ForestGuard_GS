@@ -1,126 +1,89 @@
-/* Deep Space Styling */
 :root {
     --neon-cyan: #66fcf1;
     --deep-space: #0b0c10;
-    --panel-bg: rgba(31, 40, 51, 0.6);
+    --panel-bg: rgba(31, 40, 51, 0.7);
     --text-silver: #c5c6c7;
-    --danger-red: #e74c3c;
-    --warn-gold: #f1c40f;
 }
 
 body {
     background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
     background-attachment: fixed;
     color: var(--text-silver);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 0;
-    padding: 0;
-    min-height: 100vh;
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0; min-height: 100vh;
 }
 
-/* Nav Bar */
-.main-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(11, 12, 16, 0.9);
-    padding: 15px 50px;
-    border-bottom: 2px solid var(--neon-cyan);
-    backdrop-filter: blur(10px);
+/* Cinematic Background for Home Page */
+.home-page-bg {
+    background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
+                url('space_img3.jpg');
+    background-size: cover;
 }
 
-.nav-logo { font-size: 1.5rem; font-weight: bold; color: var(--neon-cyan); letter-spacing: 2px; }
-.nav-links { list-style: none; display: flex; gap: 30px; margin: 0; }
-.nav-links a { text-decoration: none; color: white; font-weight: bold; font-size: 0.9rem; transition: 0.3s; }
-.nav-links a:hover, .nav-links a.active { color: var(--neon-cyan); text-shadow: 0 0 10px var(--neon-cyan); }
+header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 15px 40px; border-bottom: 2px solid var(--neon-cyan);
+}
 
-/* Main Layout containers */
+.status-panel { display: flex; gap: 10px; }
+.badge { background: #1f2833; padding: 5px 12px; border: 1px solid var(--neon-cyan); border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
+.nominal { color: #00ff00; border-color: #00ff00; }
+
+.main-nav { background: rgba(0,0,0,0.8); padding: 10px; }
+.nav-links { list-style: none; display: flex; justify-content: center; gap: 30px; margin: 0; }
+.nav-links a { text-decoration: none; color: white; font-weight: bold; }
+.nav-links a.active { color: var(--neon-cyan); border-bottom: 2px solid var(--neon-cyan); }
+
 main { padding: 40px; max-width: 1200px; margin: 0 auto; }
 
-/* Dashboard Panels */
+/* HORIZONTAL 3-COLUMN GRID FOR HOME */
+.info-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr 1fr; /* This keeps them side-by-side */
+    gap: 20px; 
+    margin-top: 50px; 
+}
+.info-card { 
+    background: rgba(31, 40, 51, 0.5); 
+    padding: 25px; 
+    border-radius: 12px; 
+    border: 1px solid rgba(102, 252, 241, 0.1); 
+    text-align: center;
+}
+
+.hero-section { text-align: center; margin-top: 40px; }
+.hero-section h1 { font-size: 3.5rem; color: var(--neon-cyan); margin-bottom: 10px; }
+
+/* Dashboard & Control Layouts */
 .dashboard-grid, .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .map-panel { grid-column: 1 / -1; }
 
-.panel {
-    background: var(--panel-bg);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(102, 252, 241, 0.2);
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+.panel { background: var(--panel-bg); padding: 20px; border-radius: 12px; border: 1px solid rgba(102,252,241,0.2); }
+.panel-header { color: var(--neon-cyan); font-size: 0.8rem; text-transform: uppercase; margin-bottom: 15px; border-bottom: 1px solid rgba(102,252,241,0.1); }
+
+#map-container { 
+    height: 350px; 
+    border-radius: 8px; 
+    border: 2px solid var(--neon-cyan); /* Physical border */
+    box-shadow: 0 0 15px rgba(102, 252, 241, 0.4); /* Neon glow */
+    overflow: hidden; /* Keeps map corners rounded */
 }
 
-.panel-header {
-    color: var(--neon-cyan);
-    font-weight: bold;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    margin-bottom: 15px;
-    border-bottom: 1px solid rgba(102, 252, 241, 0.1);
-    padding-bottom: 5px;
+/* Make the map markers look like glowing tech icons */
+.leaflet-marker-icon {
+    filter: drop-shadow(0 0 5px var(--neon-cyan));
 }
 
-/* Display Boxes */
-.display-box {
-    height: 250px;
-    background: rgba(0,0,0,0.4);
-    border-radius: 8px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    /* Special rule for the Map to show up properly */
-    #map-container {
-    height: 350px; /* Give it a bit more room than the other boxes */
-    width: 100%;
-    display: block; /* Leaflet doesn't like 'flex' display */
-    z-index: 1;    /* Keeps map layers in the right order */
-}
+/* Terminal Log */
+#terminal-log {
+    height: 150px; background: #000; color: #00ff00; font-family: 'Courier New', monospace;
+    padding: 15px; overflow-y: auto; font-size: 0.85rem; line-height: 1.5;
 }
 
-.content-left { flex-direction: column; align-items: flex-start; padding: 0 30px; }
-.stat-row { width: 100%; display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.cyan { color: var(--neon-cyan); font-weight: bold; }
-
-/* Control Buttons & Inputs */
-.control-inputs { display: flex; flex-direction: column; gap: 15px; }
-.input-group label { display: block; margin-bottom: 5px; font-size: 0.8rem; }
-.input-group input { 
-    width: 90%; background: rgba(0,0,0,0.3); border: 1px solid #45a29e; 
-    color: white; padding: 10px; border-radius: 4px; 
-}
-
-.cmd-btn {
-    padding: 12px; border: 1px solid var(--neon-cyan); background: transparent;
-    color: var(--neon-cyan); cursor: pointer; border-radius: 4px; font-weight: bold; transition: 0.3s;
-}
-.cmd-btn:hover { background: var(--neon-cyan); color: black; }
-.cmd-btn.warning { border-color: var(--warn-gold); color: var(--warn-gold); }
-.cmd-btn.warning:hover { background: var(--warn-gold); color: black; }
-.cmd-btn.danger { border-color: var(--danger-red); color: var(--danger-red); }
-.cmd-btn.danger:hover { background: var(--danger-red); color: white; }
-
+.cmd-btn { padding: 10px; border: 1px solid var(--neon-cyan); background: transparent; color: var(--neon-cyan); cursor: pointer; border-radius: 4px; font-weight: bold; }
+.cmd-btn.warning { border-color: #f1c40f; color: #f1c40f; }
+.cmd-btn.danger { border-color: #e74c3c; color: #e74c3c; }
 .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-/* Home Page Specifics */
-.hero-section h1 { font-size: 3rem; color: var(--neon-cyan); margin-bottom: 10px; }
-.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 50px; }
-.info-card { background: rgba(31, 40, 51, 0.4); padding: 25px; border-radius: 12px; border: 1px solid rgba(102, 252, 241, 0.1); }
+.control-inputs { display: flex; flex-direction: column; gap: 10px; }
+.control-inputs input { background: #000; border: 1px solid #45a29e; color: white; padding: 8px; }
 .loading-text { color: #45a29e; font-style: italic; }
-/* Cinematic Home Page Background */
-.home-page-bg {
-    /* This adds a dark tint (linear-gradient) PLUS the NASA photo */
-    background: 
-        linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.7)), 
-        url('space_img3.jpg'); 
-    
-    background-size: cover;       /* Makes image fill the whole screen */
-    background-position: center;  /* Centers the stars */
-    background-attachment: fixed; /* Keeps the stars still while you scroll */
-}
-
-/* Let's make the Hero Section look more "Epic" for the photo version */
-.home-page-bg .hero-section h1 {
-    font-size: 4rem;
-    text-shadow: 0 0 20px rgba(102, 252, 241, 0.8);
-    margin-top: 50px;
-}

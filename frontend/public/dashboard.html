@@ -4,14 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ForestGuard | Monitoring</title>
-    <!-- Leaflet Map Engine -->
+    <!-- Map & Chart Engines -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header>
+        <div class="logo-area">
+            <h1>🛰️ ForestGuard GS</h1>
+        </div>
+        <div class="status-panel">
+            <span id="mission-clock" class="badge">EAT: --:--:--</span>
+            <span class="badge nominal">🟢 System: NOMINAL</span>
+        </div>
+    </header>
+
     <nav class="main-nav">
-        <div class="nav-logo">🛰️ ForestGuard</div>
         <ul class="nav-links">
             <li><a href="index.html">Home</a></li>
             <li><a href="dashboard.html" class="active">Monitoring</a></li>
@@ -20,30 +30,20 @@
     </nav>
 
     <main class="dashboard-grid">
-        <!-- Live Satellite Map -->
         <section class="panel map-panel">
             <div class="panel-header">🌍 Live Orbital Path</div>
-            <div id="map-container" class="display-box">
-                <p class="loading-text">Initializing Tracking Map...</p>
-            </div>
+            <div id="map-container"></div>
         </section>
 
-        <!-- Live Telemetry -->
         <section class="panel">
-            <div class="panel-header">📊 Satellite Telemetry</div>
-            <div id="chart-container" class="display-box content-left">
-                <div class="stat-row"><span>🔋 Battery:</span> <span class="cyan">98%</span></div>
-                <div class="stat-row"><span>🌡️ Temp:</span> <span class="cyan">-12°C</span></div>
-                <div class="stat-row"><span>📡 RSSI:</span> <span class="cyan">-85 dBm</span></div>
-                <div class="stat-row"><span>🔄 Uptime:</span> <span class="cyan">04:12:45</span></div>
-            </div>
+            <div class="panel-header">📊 Signal Strength (RSSI)</div>
+            <div id="chart-container" class="display-box"></div>
         </section>
 
-        <!-- Image Gallery -->
         <section class="panel">
-            <div class="panel-header">🌲 Imaging Payload Viewer</div>
+            <div class="panel-header">🌲 Payload Viewer</div>
             <div id="image-container" class="display-box">
-                <p class="loading-text">Awaiting Downlink Signal...</p>
+                <p class="loading-text">Awaiting Downlink...</p>
             </div>
         </section>
     </main>

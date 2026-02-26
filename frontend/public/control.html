@@ -7,8 +7,17 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header>
+        <div class="logo-area">
+            <h1>🛰️ ForestGuard GS</h1>
+        </div>
+        <div class="status-panel">
+            <span id="mission-clock" class="badge">EAT: --:--:--</span>
+            <span class="badge nominal">🟢 Operator: ACTIVE</span>
+        </div>
+    </header>
+
     <nav class="main-nav">
-        <div class="nav-logo">🛰️ ForestGuard</div>
         <ul class="nav-links">
             <li><a href="index.html">Home</a></li>
             <li><a href="dashboard.html">Monitoring</a></li>
@@ -17,39 +26,33 @@
     </nav>
 
     <main class="control-container">
-        <header class="section-title">
-            <h2>🚀 Operator Command Center</h2>
-            <p>Manual override and uplink scheduler</p>
-        </header>
-
         <div class="control-grid">
-            <!-- Antenna Section -->
             <section class="panel">
-                <div class="panel-header">📡 Ground Station Antenna</div>
+                <div class="panel-header">📡 Antenna Pointing</div>
                 <div class="control-inputs">
-                    <div class="input-group">
-                        <label>Azimuth (°)</label>
-                        <input type="number" step="0.01" placeholder="000.00">
-                    </div>
-                    <div class="input-group">
-                        <label>Elevation (°)</label>
-                        <input type="number" step="0.01" placeholder="00.00">
-                    </div>
+                    <input type="number" placeholder="Azimuth 0.00°">
+                    <input type="number" placeholder="Elevation 0.00°">
                     <button class="cmd-btn">Apply Pointing</button>
                 </div>
             </section>
 
-            <!-- Command Section -->
             <section class="panel">
                 <div class="panel-header">🕹️ Satellite Uplink</div>
                 <div class="button-grid">
-                    <button class="cmd-btn warning">📸 Trigger RGB Capture</button>
-                    <button class="cmd-btn warning">🔥 Start Thermal Scan</button>
-                    <button class="cmd-btn danger">🔄 Cold System Reboot</button>
-                    <button class="cmd-btn">🛰️ Ping Transceiver</button>
+                    <button class="cmd-btn warning">📸 Capture Image</button>
+                    <button class="cmd-btn warning">🔥 Thermal Scan</button>
+                    <button class="cmd-btn danger">🔄 System Reboot</button>
                 </div>
             </section>
         </div>
+
+        <section class="panel log-panel" style="margin-top: 20px;">
+            <div class="panel-header">📟 Command Output Log</div>
+            <div id="terminal-log">
+                > Initializing Ground Station Alpha (Kenya)...<br>
+                > Standby for operator input...<br>
+            </div>
+        </section>
     </main>
 
     <script src="app.js"></script>

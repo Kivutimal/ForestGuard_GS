@@ -16,7 +16,7 @@ body {
 /* Cinematic Background for Home Page */
 .home-page-bg {
     background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
-                url('space_img3.jpg');
+                url('space_img4.jpg');
     background-size: cover;
 }
 

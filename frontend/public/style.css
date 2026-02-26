@@ -68,6 +68,13 @@ main { padding: 40px; max-width: 1200px; margin: 0 auto; }
     display: flex;
     justify-content: center;
     align-items: center;
+    /* Special rule for the Map to show up properly */
+    #map-container {
+    height: 350px; /* Give it a bit more room than the other boxes */
+    width: 100%;
+    display: block; /* Leaflet doesn't like 'flex' display */
+    z-index: 1;    /* Keeps map layers in the right order */
+}
 }
 
 .content-left { flex-direction: column; align-items: flex-start; padding: 0 30px; }

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForestGuard | Control</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="main-nav">
+        <div class="nav-logo">🛰️ ForestGuard</div>
+        <ul class="nav-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="dashboard.html">Monitoring</a></li>
+            <li><a href="control.html" class="active">Control Panel</a></li>
+        </ul>
+    </nav>
+
+    <main class="control-container">
+        <header class="section-title">
+            <h2>🚀 Operator Command Center</h2>
+            <p>Manual override and uplink scheduler</p>
+        </header>
+
+        <div class="control-grid">
+            <!-- Antenna Section -->
+            <section class="panel">
+                <div class="panel-header">📡 Ground Station Antenna</div>
+                <div class="control-inputs">
+                    <div class="input-group">
+                        <label>Azimuth (°)</label>
+                        <input type="number" step="0.01" placeholder="000.00">
+                    </div>
+                    <div class="input-group">
+                        <label>Elevation (°)</label>
+                        <input type="number" step="0.01" placeholder="00.00">
+                    </div>
+                    <button class="cmd-btn">Apply Pointing</button>
+                </div>
+            </section>
+
+            <!-- Command Section -->
+            <section class="panel">
+                <div class="panel-header">🕹️ Satellite Uplink</div>
+                <div class="button-grid">
+                    <button class="cmd-btn warning">📸 Trigger RGB Capture</button>
+                    <button class="cmd-btn warning">🔥 Start Thermal Scan</button>
+                    <button class="cmd-btn danger">🔄 Cold System Reboot</button>
+                    <button class="cmd-btn">🛰️ Ping Transceiver</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

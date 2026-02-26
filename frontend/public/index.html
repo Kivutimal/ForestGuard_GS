@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForestGuard | Home</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="main-nav">
+        <div class="nav-logo">🛰️ ForestGuard</div>
+        <ul class="nav-links">
+            <li><a href="index.html" class="active">Home</a></li>
+            <li><a href="dashboard.html">Monitoring</a></li>
+            <li><a href="control.html">Control Panel</a></li>
+        </ul>
+    </nav>
+
+    <main class="info-container">
+        <section class="hero-section">
+            <h1>Protecting Forests from Above</h1>
+            <p>A Nanosatellite Ground Station UI designed for real-time deforestation detection, illegal logging tracking, and forest fire monitoring.</p>
+        </section>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <h3>🌍 Orbital Tracking</h3>
+                <p>Real-time satellite position tracking on interactive maps using Skyfield orbital propagation.</p>
+            </div>
+            <div class="info-card">
+                <h3>🔥 Fire Detection</h3>
+                <p>Thermal analysis using the AMG8833 sensor to identify forest hotspots in real-time.</p>
+            </div>
+            <div class="info-card">
+                <h3>🌳 Forest Analysis</h3>
+                <p>AI-assisted RGB analysis to detect new tracks, clearings, and illegal logging activity.</p>
+            </div>
+        </div>
+
+        <section class="tech-stack-preview">
+            <h3>Project Architecture</h3>
+            <p>Powered by Python (FastAPI), Socket.IO, ESP32 Transceivers, and OpenCV.</p>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ForestGuard | Monitoring</title>
-    <!-- Map & Chart Engines -->
+    <!-- Map, Chart, & WebSocket Engines -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -36,8 +37,25 @@
         </section>
 
         <section class="panel">
-            <div class="panel-header">📊 Signal Strength (RSSI)</div>
-            <div id="chart-container" class="display-box"></div>
+            <!-- Telemetry Header with Toggle Buttons -->
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>📊 Live Telemetry</span>
+                <div class="chart-selectors">
+                    <button class="chart-btn active" onclick="showChart(0)">📡 RSSI</button>
+                    <button class="chart-btn" onclick="showChart(1)">🔋 Battery</button>
+                    <button class="chart-btn" onclick="showChart(2)">🌡️ Temp</button>
+                </div>
+            </div>
+            
+            <!-- Live Text Readouts -->
+            <div style="display: flex; justify-content: space-around; margin-bottom: 15px; font-weight: bold;">
+                <span>🔋 Bat: <span id="val-battery" class="cyan">--%</span></span>
+                <span>🌡️ Temp: <span id="val-temp" class="cyan">--°C</span></span>
+                <span>📡 RSSI: <span id="val-rssi" class="cyan">--dBm</span></span>
+            </div>
+
+            <!-- The Chart -->
+            <div id="chart-container" class="display-box" style="height: 200px;"></div>
         </section>
 
         <section class="panel">

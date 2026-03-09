@@ -3,6 +3,8 @@
     --deep-space: #0b0c10;
     --panel-bg: rgba(31, 40, 51, 0.7);
     --text-silver: #c5c6c7;
+    --danger-red: #e74c3c;
+    --success-green: #00ff00;
 }
 
 body {
@@ -10,73 +12,308 @@ body {
     background-attachment: fixed;
     color: var(--text-silver);
     font-family: 'Segoe UI', sans-serif;
-    margin: 0; min-height: 100vh;
+    margin: 0;
+    min-height: 100vh;
 }
 
-/* Cinematic Background for Home Page */
+/* --- Navigation & Header --- */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 40px;
+    border-bottom: 2px solid var(--neon-cyan);
+}
+
 .home-page-bg {
     background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
                 url('space-bg.jpg');
     background-size: cover;
 }
 
-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 15px 40px; border-bottom: 2px solid var(--neon-cyan);
+.status-panel {
+    display: flex;
+    gap: 10px;
 }
 
-.status-panel { display: flex; gap: 10px; }
-.badge { background: #1f2833; padding: 5px 12px; border: 1px solid var(--neon-cyan); border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
-.nominal { color: #00ff00; border-color: #00ff00; }
-.cyan { color: var(--neon-cyan); font-weight: bold; }
-
-.main-nav { background: rgba(0,0,0,0.8); padding: 10px; }
-.nav-links { list-style: none; display: flex; justify-content: center; gap: 30px; margin: 0; }
-.nav-links a { text-decoration: none; color: white; font-weight: bold; }
-.nav-links a.active { color: var(--neon-cyan); border-bottom: 2px solid var(--neon-cyan); }
-
-main { padding: 40px; max-width: 1200px; margin: 0 auto; }
-
-/* HORIZONTAL 3-COLUMN GRID FOR HOME */
-.info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 50px; }
-.info-card { background: rgba(31, 40, 51, 0.5); padding: 25px; border-radius: 12px; border: 1px solid rgba(102, 252, 241, 0.1); text-align: center; }
-
-.hero-section { text-align: center; margin-top: 40px; }
-.hero-section h1 { font-size: 3.5rem; color: var(--neon-cyan); margin-bottom: 10px; }
-
-/* Dashboard & Control Layouts */
-.dashboard-grid, .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.map-panel { grid-column: 1 / -1; }
-
-.panel { background: var(--panel-bg); padding: 20px; border-radius: 12px; border: 1px solid rgba(102,252,241,0.2); }
-.panel-header { color: var(--neon-cyan); font-size: 0.8rem; text-transform: uppercase; margin-bottom: 15px; border-bottom: 1px solid rgba(102,252,241,0.1); }
-
-/* Map Container with Glow */
-#map-container { 
-    height: 350px; 
-    border-radius: 8px; 
-    border: 2px solid var(--neon-cyan); 
-    box-shadow: 0 0 15px rgba(102, 252, 241, 0.4); 
-    overflow: hidden; 
+.main-nav {
+    background: rgba(0,0,0,0.8);
+    padding: 10px;
 }
-.leaflet-marker-icon { filter: drop-shadow(0 0 5px var(--neon-cyan)); }
-.display-box { height: 250px; background: rgba(0,0,0,0.3); border-radius: 8px; display: flex; justify-content: center; align-items: center; position: relative;}
 
-/* Chart Selector Buttons */
-.chart-selectors { display: flex; gap: 5px; }
+.nav-links {
+    list-style: none;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin: 0;
+}
+
+.nav-links a {
+    text-decoration: none;
+    color: white;
+    font-weight: bold;
+}
+
+.nav-links a.active {
+    color: var(--neon-cyan);
+    border-bottom: 2px solid var(--neon-cyan);
+}
+
+/* --- Layout Grid --- */
+main {
+    padding: 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.dashboard-grid, .control-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.map-panel {
+    grid-column: 1 / -1;
+}
+
+/* --- Panels & Headers --- */
+.panel {
+    background: var(--panel-bg);
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid rgba(102, 252, 241, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.panel-header {
+    color: var(--neon-cyan);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    margin-bottom: 15px;
+    border-bottom: 1px solid rgba(102, 252, 241, 0.1);
+    padding-bottom: 5px;
+}
+
+/* New: Flexible Header for buttons/alerts */
+.panel-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--neon-cyan);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    margin-bottom: 15px;
+    border-bottom: 1px solid rgba(102, 252, 241, 0.1);
+    padding-bottom: 5px;
+}
+
+/* --- Telemetry & Charts --- */
+.telemetry-stats-row {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 15px;
+    font-weight: bold;
+}
+
+.display-box {
+    height: 250px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* New: Specific Chart Height */
+.chart-height {
+    height: 200px;
+}
+
+.chart-selectors {
+    display: flex;
+    gap: 5px;
+}
+
 .chart-btn {
-    background: rgba(0, 0, 0, 0.5); border: 1px solid #45a29e; color: var(--text-silver);
-    padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold; transition: 0.3s;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid #45a29e;
+    color: var(--text-silver);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: bold;
+    transition: 0.3s;
 }
-.chart-btn:hover { background: rgba(102, 252, 241, 0.2); }
-.chart-btn.active { background: var(--neon-cyan); color: black; box-shadow: 0 0 10px rgba(102, 252, 241, 0.5); }
 
-/* Terminal Log */
-#terminal-log { height: 150px; background: #000; color: #00ff00; font-family: 'Courier New', monospace; padding: 15px; overflow-y: auto; font-size: 0.85rem; line-height: 1.5; }
-.cmd-btn { padding: 10px; border: 1px solid var(--neon-cyan); background: transparent; color: var(--neon-cyan); cursor: pointer; border-radius: 4px; font-weight: bold; }
-.cmd-btn.warning { border-color: #f1c40f; color: #f1c40f; }
-.cmd-btn.danger { border-color: #e74c3c; color: #e74c3c; }
-.button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.control-inputs { display: flex; flex-direction: column; gap: 10px; }
-.control-inputs input { background: #000; border: 1px solid #45a29e; color: white; padding: 8px; }
-.loading-text { color: #45a29e; font-style: italic; }
+.chart-btn.active {
+    background: var(--neon-cyan);
+    color: black;
+    box-shadow: 0 0 10px rgba(102, 252, 241, 0.5);
+}
+
+/* --- Sensor Fusion (Payload Viewer) --- */
+.satellite-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.thermal-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.5;
+}
+
+.fusion-controls-container {
+    margin-top: 15px;
+    padding: 10px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+}
+
+.control-label {
+    font-size: 0.8rem;
+    color: var(--neon-cyan);
+    display: block;
+    margin-bottom: 5px;
+}
+
+.full-width-slider {
+    width: 100%;
+    cursor: pointer;
+}
+
+.status-footer-row {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 10px;
+    font-size: 0.8rem;
+}
+
+/* --- Home Page Info --- */
+.hero-section {
+    text-align: center;
+    margin-top: 40px;
+}
+
+.hero-section h1 {
+    font-size: 3.5rem;
+    color: var(--neon-cyan);
+    margin-bottom: 10px;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-top: 50px;
+}
+
+.info-card {
+    background: rgba(31, 40, 51, 0.5);
+    padding: 25px;
+    border-radius: 12px;
+    border: 1px solid rgba(102, 252, 241, 0.1);
+    text-align: center;
+}
+
+/* --- Status & Alerts --- */
+.badge {
+    background: #1f2833;
+    padding: 5px 12px;
+    border: 1px solid var(--neon-cyan);
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 0.8rem;
+}
+
+.nominal { 
+    color: var(--success-green); 
+    border-color: var(--success-green); 
+}
+.danger-alert { 
+    display: none; 
+    background: var(--danger-red); 
+    color: white; 
+    border-color: white; 
+}
+.cyan { 
+    color: var(--neon-cyan); 
+    font-weight: bold; 
+}
+.health-stable { 
+    color: var(--success-green); 
+}
+.loading-text { 
+    color: #45a29e; 
+    font-style: italic; 
+}
+
+/* --- Map & Hardware --- */
+#map-container {
+    height: 350px;
+    border-radius: 8px;
+    border: 2px solid var(--neon-cyan);
+    box-shadow: 0 0 15px rgba(102, 252, 241, 0.4);
+    overflow: hidden;
+}
+
+.leaflet-marker-icon {
+    filter: drop-shadow(0 0 5px var(--neon-cyan));
+}
+
+#terminal-log {
+    height: 150px;
+    background: #000;
+    color: #00ff00;
+    font-family: 'Courier New', monospace;
+    padding: 15px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.cmd-btn {
+    padding: 10px;
+    border: 1px solid var(--neon-cyan);
+    background: transparent;
+    color: var(--neon-cyan);
+    cursor: pointer;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+.cmd-btn.warning { 
+    border-color: #f1c40f; 
+    color: #f1c40f; 
+}
+.cmd-btn.danger { 
+    border-color: var(--danger-red); 
+    color: var(--danger-red); 
+}
+.button-grid { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 10px; 
+}
+.control-inputs { 
+    display: flex; 
+    flex-direction: column; 
+    gap: 10px; 
+}
+.control-inputs input { 
+    background: #000; 
+    border: 1px solid #45a29e; 
+    color: white; 
+    padding: 8px; 
+}

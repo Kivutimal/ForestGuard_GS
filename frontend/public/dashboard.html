@@ -31,14 +31,15 @@
     </nav>
 
     <main class="dashboard-grid">
+        <!-- 🌍 LIVE MAP -->
         <section class="panel map-panel">
             <div class="panel-header">🌍 Live Orbital Path</div>
             <div id="map-container"></div>
         </section>
 
+        <!-- 📊 TELEMETRY CHART -->
         <section class="panel">
-            <!-- Telemetry Header with Toggle Buttons -->
-            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="panel-header-flex">
                 <span>📊 Live Telemetry</span>
                 <div class="chart-selectors">
                     <button class="chart-btn active" onclick="showChart(0)">📡 RSSI</button>
@@ -47,42 +48,34 @@
                 </div>
             </div>
             
-            <!-- Live Text Readouts -->
-            <div style="display: flex; justify-content: space-around; margin-bottom: 15px; font-weight: bold;">
+            <div class="telemetry-stats-row">
                 <span>🔋 Bat: <span id="val-battery" class="cyan">--%</span></span>
                 <span>🌡️ Temp: <span id="val-temp" class="cyan">--°C</span></span>
                 <span>📡 RSSI: <span id="val-rssi" class="cyan">--dBm</span></span>
             </div>
 
-            <!-- The Chart -->
-            <div id="chart-container" class="display-box" style="height: 200px;"></div>
+            <div id="chart-container" class="display-box chart-height"></div>
         </section>
 
+        <!-- 🌲 SENSOR FUSION PAYLOAD -->
         <section class="panel">
-            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="panel-header-flex">
                 <span>🌲 Payload: Sensor Fusion</span>
-                <div id="fire-alert" class="badge danger" style="display: none; background: #e74c3c; color: white;">⚠️ FIRE DETECTED</div>
+                <div id="fire-alert" class="badge danger-alert">⚠️ FIRE DETECTED</div>
             </div>
             
-            <!-- THE FUSION VIEWER -->
-            <div class="display-box" style="height: 300px; position: relative; background: #000; overflow: hidden;">
-                <!-- Layer 1: The Pi Camera Photo -->
-                <img id="rgb-image" src="Forest_img.jpg" 
-                     style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;">
-                
-                <!-- Layer 2: The Thermal Heatmap (Transparent Overlay) -->
-                <canvas id="thermal-canvas" width="400" height="300" 
-                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5;"></canvas>
+            <div class="display-box fusion-viewer">
+                <img id="rgb-image" src="Forest_img.jpg" class="satellite-img">
+                <canvas id="thermal-canvas" width="400" height="300" class="thermal-layer"></canvas>
             </div>
 
-            <!-- FUSION CONTROLS -->
-            <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;">
-                <label style="font-size: 0.8rem; color: var(--neon-cyan);">Thermal Opacity: </label>
-                <input type="range" id="opacity-slider" min="0" max="100" value="50" style="width: 100%;">
+            <div class="fusion-controls-container">
+                <label class="control-label">Thermal Opacity Overlay</label>
+                <input type="range" id="opacity-slider" min="0" max="100" value="50" class="full-width-slider">
                 
-                <div style="display: flex; justify-content: space-around; margin-top: 10px; font-size: 0.8rem;">
+                <div class="status-footer-row">
                     <span>Max Heat: <span id="thermal-max" class="cyan">--</span>°C</span>
-                    <span>Forest Health: <span id="forest-health" style="color: #00ff00;">EXCELLENT</span></span>
+                    <span>Forest Health: <span id="forest-health" class="health-excellent">EXCELLENT</span></span>
                 </div>
             </div>
         </section>

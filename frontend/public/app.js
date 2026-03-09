@@ -152,40 +152,44 @@ function drawHeatmap(thermalData) {
     const canvas = document.getElementById('thermal-canvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
-    const cols = 8;
-    const rows = 8;
-    const cellWidth = canvas.width / cols;
-    const cellHeight = canvas.height / rows;
-
+    const cellW = canvas.width / 8;
+    const cellH = canvas.height / 8;
     let maxTemp = 0;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear old frame
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (let i = 0; i < 64; i++) {
-        const temp = thermalData[i];
-        if (temp > maxTemp) maxTemp = temp;
-
-        const x = i % cols;
-        const y = Math.floor(i / cols);
-
-        ctx.fillStyle = getThermalColor(temp);
-        // We use slightly smaller fillRect to keep a tiny gap (grid look)
-        ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth - 1, cellHeight - 1);
+        const t = thermalData[i];
+        if (t > maxTemp) maxTemp = t;
+        ctx.fillStyle = getThermalColor(t);
+        ctx.fillRect((i % 8) * cellW, Math.floor(i / 8) * cellH, cellW - 1, cellH - 1);
     }
 
+    // --- UPDATED LOGIC START ---
     document.getElementById('thermal-max').innerText = maxTemp.toFixed(1);
+    
+    const alertBadge = document.getElementById('fire-alert');
+    const healthText = document.getElementById('forest-health');
 
-    // 🔥 ALERT LOGIC
-    const alert = document.getElementById('fire-alert');
     if (maxTemp > 70) {
-        alert.style.display = 'inline-block';
-        // Make the canvas pulse red
-        thermalCanvas.style.boxShadow = "inset 0 0 20px #e74c3c";
-    } else {
-        alert.style.display = 'none';
-        thermalCanvas.style.boxShadow = "none";
+        // 🔥 CRITICAL STATE: FIRE
+        alertBadge.style.display = 'inline-block';
+        healthText.innerText = "CRITICAL: FIRE DETECTED";
+        healthText.className = "health-critical"; // Changes color and starts blink
+    } 
+    else if (maxTemp > 45) {
+        // ⚠️ WARNING STATE: HEAT STRESS
+        alertBadge.style.display = 'none';
+        healthText.innerText = "WARNING: THERMAL STRESS";
+        healthText.className = "health-warning"; // Changes color to yellow
+    } 
+    else {
+        // 🟢 STABLE STATE: HEALTHY
+        alertBadge.style.display = 'none';
+        healthText.innerText = "EXCELLENT";
+        healthText.className = "health-stable"; // Changes color back to green
     }
+    // --- UPDATED LOGIC END ---
 }
 
 // Update the socket listener to handle the incoming thermal array

@@ -251,8 +251,28 @@ main {
     color: var(--neon-cyan); 
     font-weight: bold; 
 }
+/* Forest Health Status Colors */
 .health-stable { 
     color: var(--success-green); 
+    text-shadow: 0 0 5px rgba(0, 255, 0, 0.3); 
+}
+
+.health-warning { 
+    color: #f1c40f; /* Yellow/Orange */
+    text-shadow: 0 0 5px rgba(241, 196, 15, 0.3); 
+}
+
+.health-critical { 
+    color: var(--danger-red); 
+    font-weight: bold;
+    text-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+    animation: pulse-red 1.5s infinite; /* Make it blink! */
+}
+
+@keyframes pulse-red {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
 }
 .loading-text { 
     color: #45a29e; 

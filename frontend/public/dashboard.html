@@ -59,9 +59,20 @@
         </section>
 
         <section class="panel">
-            <div class="panel-header">🌲 Payload Viewer</div>
-            <div id="image-container" class="display-box">
-                <p class="loading-text">Awaiting Downlink...</p>
+            <div class="panel-header" style="display: flex; justify-content: space-between;">
+                <span>🌲 Payload: Thermal Scan</span>
+                <span id="fire-alert" style="color: #e74c3c; font-weight: bold; display: none;">⚠️ FIRE DETECTED</span>
+            </div>
+            
+            <div class="display-box" style="height: 250px; background: #000; overflow: hidden;">
+                <!-- This is our digital drawing board -->
+                <canvas id="thermal-canvas" width="250" height="250"></canvas>
+            </div>
+
+            <!-- Mini stats for the thermal scan -->
+            <div style="display: flex; justify-content: space-around; margin-top: 10px; font-size: 0.8rem;">
+                <span>Max: <span id="thermal-max" class="cyan">--</span>°C</span>
+                <span>Avg: <span id="thermal-avg" class="cyan">--</span>°C</span>
             </div>
         </section>
     </main>

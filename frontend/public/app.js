@@ -124,3 +124,71 @@ socket.on('telemetry_update', (data) => {
         window.signalChart.update();
     }
 });
+
+// --- 7. THERMAL HEATMAP LOGIC ---
+
+// This function turns a temperature into a CSS color (Blue -> Red)
+function getThermalColor(temp) {
+    // We normalize the temp between 20 (Cold) and 80 (Hot)
+    // Anything below 20 is blue, anything above 80 is red
+    const min = 20;
+    const max = 80;
+    const percentage = Math.max(0, Math.min(100, ((temp - min) / (max - min)) * 100));
+    
+    // HSL color: 240 is Blue, 0 is Red. 
+    // We subtract the percentage from 240 to "move" from blue to red.
+    const hue = 240 - (percentage * 2.4); 
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+function drawHeatmap(thermalData) {
+    const canvas = document.getElementById('thermal-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    const pixelSize = canvas.width / 8; // Since it's an 8x8 grid
+    let maxTemp = 0;
+    let sumTemp = 0;
+
+    // We loop through the 64 pixels (8x8)
+    for (let i = 0; i < 64; i++) {
+        const temp = thermalData[i];
+        if (temp > maxTemp) maxTemp = temp;
+        sumTemp += temp;
+
+        // Calculate X and Y coordinates on the 8x8 grid
+        const x = i % 8;        // Column (0 to 7)
+        const y = Math.floor(i / 8); // Row (0 to 7)
+
+        // Draw the pixel
+        ctx.fillStyle = getThermalColor(temp);
+        ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+        
+        // Optional: Add a subtle border to each pixel for a "grid" look
+        ctx.strokeStyle = "rgba(0,0,0,0.1)";
+        ctx.strokeRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+    }
+
+    // Update the UI readouts
+    document.getElementById('thermal-max').innerText = maxTemp.toFixed(1);
+    document.getElementById('thermal-avg').innerText = (sumTemp / 64).toFixed(1);
+
+    // If any pixel is over 70°C, show the Fire Alert!
+    const alert = document.getElementById('fire-alert');
+    if (maxTemp > 70) {
+        alert.style.display = 'inline';
+    } else {
+        alert.style.display = 'none';
+    }
+}
+
+// NOW, update your Socket.IO listener to call this function!
+// Look for your socket.on('telemetry_update') and add this line inside it:
+socket.on('telemetry_update', (data) => {
+    // ... your existing chart code ...
+
+    // Call our new heatmap function!
+    if (data.thermal) {
+        drawHeatmap(data.thermal);
+    }
+});

@@ -125,20 +125,27 @@ socket.on('telemetry_update', (data) => {
     }
 });
 
-// --- 7. THERMAL HEATMAP LOGIC ---
+// --- 6. SENSOR FUSION LOGIC ---
 
-// This function turns a temperature into a CSS color (Blue -> Red)
+// Link the slider to the canvas opacity
+const slider = document.getElementById('opacity-slider');
+const thermalCanvas = document.getElementById('thermal-canvas');
+
+if (slider && thermalCanvas) {
+    slider.addEventListener('input', (e) => {
+        thermalCanvas.style.opacity = e.target.value / 100;
+    });
+}
+
 function getThermalColor(temp) {
-    // We normalize the temp between 20 (Cold) and 80 (Hot)
-    // Anything below 20 is blue, anything above 80 is red
     const min = 20;
     const max = 80;
     const percentage = Math.max(0, Math.min(100, ((temp - min) / (max - min)) * 100));
     
-    // HSL color: 240 is Blue, 0 is Red. 
-    // We subtract the percentage from 240 to "move" from blue to red.
-    const hue = 240 - (percentage * 2.4); 
-    return `hsl(${hue}, 100%, 50%)`;
+    // We use a "Flame" palette: Blue (cold) -> Yellow -> Red (hot)
+    if (percentage < 25) return `rgba(0, 0, 255, ${percentage/100})`; // Cold
+    if (percentage < 75) return `rgba(255, 255, 0, 0.6)`; // Warm
+    return `rgba(255, 0, 0, 0.8)`; // FIRE!
 }
 
 function drawHeatmap(thermalData) {
@@ -146,48 +153,45 @@ function drawHeatmap(thermalData) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
-    const pixelSize = canvas.width / 8; // Since it's an 8x8 grid
-    let maxTemp = 0;
-    let sumTemp = 0;
+    const cols = 8;
+    const rows = 8;
+    const cellWidth = canvas.width / cols;
+    const cellHeight = canvas.height / rows;
 
-    // We loop through the 64 pixels (8x8)
+    let maxTemp = 0;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear old frame
+
     for (let i = 0; i < 64; i++) {
         const temp = thermalData[i];
         if (temp > maxTemp) maxTemp = temp;
-        sumTemp += temp;
 
-        // Calculate X and Y coordinates on the 8x8 grid
-        const x = i % 8;        // Column (0 to 7)
-        const y = Math.floor(i / 8); // Row (0 to 7)
+        const x = i % cols;
+        const y = Math.floor(i / cols);
 
-        // Draw the pixel
         ctx.fillStyle = getThermalColor(temp);
-        ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
-        
-        // Optional: Add a subtle border to each pixel for a "grid" look
-        ctx.strokeStyle = "rgba(0,0,0,0.1)";
-        ctx.strokeRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+        // We use slightly smaller fillRect to keep a tiny gap (grid look)
+        ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth - 1, cellHeight - 1);
     }
 
-    // Update the UI readouts
     document.getElementById('thermal-max').innerText = maxTemp.toFixed(1);
-    document.getElementById('thermal-avg').innerText = (sumTemp / 64).toFixed(1);
 
-    // If any pixel is over 70°C, show the Fire Alert!
+    // 🔥 ALERT LOGIC
     const alert = document.getElementById('fire-alert');
     if (maxTemp > 70) {
-        alert.style.display = 'inline';
+        alert.style.display = 'inline-block';
+        // Make the canvas pulse red
+        thermalCanvas.style.boxShadow = "inset 0 0 20px #e74c3c";
     } else {
         alert.style.display = 'none';
+        thermalCanvas.style.boxShadow = "none";
     }
 }
 
-// NOW, update your Socket.IO listener to call this function!
-// Look for your socket.on('telemetry_update') and add this line inside it:
+// Update the socket listener to handle the incoming thermal array
 socket.on('telemetry_update', (data) => {
-    // ... your existing chart code ...
+    // ... (Keep your existing chart/text updates here) ...
 
-    // Call our new heatmap function!
     if (data.thermal) {
         drawHeatmap(data.thermal);
     }

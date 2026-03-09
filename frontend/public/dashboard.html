@@ -59,20 +59,31 @@
         </section>
 
         <section class="panel">
-            <div class="panel-header" style="display: flex; justify-content: space-between;">
-                <span>🌲 Payload: Thermal Scan</span>
-                <span id="fire-alert" style="color: #e74c3c; font-weight: bold; display: none;">⚠️ FIRE DETECTED</span>
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>🌲 Payload: Sensor Fusion</span>
+                <div id="fire-alert" class="badge danger" style="display: none; background: #e74c3c; color: white;">⚠️ FIRE DETECTED</div>
             </div>
             
-            <div class="display-box" style="height: 250px; background: #000; overflow: hidden;">
-                <!-- This is our digital drawing board -->
-                <canvas id="thermal-canvas" width="250" height="250"></canvas>
+            <!-- THE FUSION VIEWER -->
+            <div class="display-box" style="height: 300px; position: relative; background: #000; overflow: hidden;">
+                <!-- Layer 1: The Pi Camera Photo -->
+                <img id="rgb-image" src="Forest_img.jpg" 
+                     style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;">
+                
+                <!-- Layer 2: The Thermal Heatmap (Transparent Overlay) -->
+                <canvas id="thermal-canvas" width="400" height="300" 
+                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5;"></canvas>
             </div>
 
-            <!-- Mini stats for the thermal scan -->
-            <div style="display: flex; justify-content: space-around; margin-top: 10px; font-size: 0.8rem;">
-                <span>Max: <span id="thermal-max" class="cyan">--</span>°C</span>
-                <span>Avg: <span id="thermal-avg" class="cyan">--</span>°C</span>
+            <!-- FUSION CONTROLS -->
+            <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                <label style="font-size: 0.8rem; color: var(--neon-cyan);">Thermal Opacity: </label>
+                <input type="range" id="opacity-slider" min="0" max="100" value="50" style="width: 100%;">
+                
+                <div style="display: flex; justify-content: space-around; margin-top: 10px; font-size: 0.8rem;">
+                    <span>Max Heat: <span id="thermal-max" class="cyan">--</span>°C</span>
+                    <span>Forest Health: <span id="forest-health" style="color: #00ff00;">EXCELLENT</span></span>
+                </div>
             </div>
         </section>
     </main>

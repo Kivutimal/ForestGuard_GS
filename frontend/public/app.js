@@ -10,13 +10,20 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// --- 2. MAP LOGIC (Satellite Hybrid View) ---
+// --- 2. MAP LOGIC (Live Satellite Tracking) ---
 const mapElement = document.getElementById('map-container');
+let satelliteMarker;
+let orbitPath;
+
 if (mapElement) {
-    const map = L.map('map-container').setView([-1.286, 36.817], 11);
-    const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+    const map = L.map('map-container').setView([-1.286, 36.817], 7);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'shadowPane' }).addTo(map);
-    L.marker([-1.286, 36.817]).addTo(map).bindPopup("<b>ForestGuard Alpha</b><br>Nairobi HQ").openPopup();
+
+    const satIcon = L.divIcon({ html: '<div style="font-size: 24px;">🛰️</div>', className: 'satellite-icon', iconSize: [30, 30] });
+    satelliteMarker = L.marker([-1.286, 36.817], { icon: satIcon }).addTo(map);
+    satelliteMarker.bindPopup("<b>ForestGuard Alpha</b>");
+    orbitPath = L.polyline([], {color: '#66fcf1', weight: 2}).addTo(map);
 }
 
 // --- 3. CHART LOGIC (Selectable Plots) ---
@@ -24,128 +31,37 @@ const chartElement = document.getElementById('chart-container');
 if (chartElement) {
     const ctx = document.createElement('canvas');
     chartElement.appendChild(ctx);
-    
     window.signalChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: [], 
             datasets:[
-                {
-                    label: 'RSSI (dBm)',
-                    data: [], 
-                    borderColor: '#66fcf1', backgroundColor: 'rgba(102, 252, 241, 0.1)', fill: true, tension: 0.4,
-                    hidden: false // Visible by default
-                },
-                {
-                    label: 'Battery (%)',
-                    data:[], 
-                    borderColor: '#00ff00', backgroundColor: 'rgba(0, 255, 0, 0.1)', fill: true, tension: 0.4,
-                    hidden: true // Hidden by default
-                },
-                {
-                    label: 'Temp (°C)',
-                    data:[], 
-                    borderColor: '#ff9900', backgroundColor: 'rgba(255, 153, 0, 0.1)', fill: true, tension: 0.4,
-                    hidden: true // Hidden by default
-                }
+                { label: 'RSSI (dBm)', data: [], borderColor: '#66fcf1', backgroundColor: 'rgba(102, 252, 241, 0.1)', fill: true, tension: 0.4, hidden: false },
+                { label: 'Battery (%)', data:[], borderColor: '#00ff00', backgroundColor: 'rgba(0, 255, 0, 0.1)', fill: true, tension: 0.4, hidden: true },
+                { label: 'Temp (°C)', data:[], borderColor: '#ff9900', backgroundColor: 'rgba(255, 153, 0, 0.1)', fill: true, tension: 0.4, hidden: true }
             ]
         },
-        options: { 
-            maintainAspectRatio: false, 
-            plugins: { legend: { display: false } }, // Hidden legend because we have buttons now!
-            scales: { x: { display: false }, y: { grid: { color: 'rgba(255, 255, 255, 0.05)' } } } 
-        }
+        options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { grid: { color: 'rgba(255, 255, 255, 0.05)' } } } }
     });
 }
 
-// Global Function to handle Chart Button Clicks
 window.showChart = function(index) {
     if (!window.signalChart) return;
-
-    // Toggle datasets
-    window.signalChart.data.datasets.forEach((dataset, i) => {
-        dataset.hidden = (i !== index);
-    });
+    window.signalChart.data.datasets.forEach((ds, i) => ds.hidden = (i !== index));
     window.signalChart.update();
-
-    // Toggle button colors
-    const buttons = document.querySelectorAll('.chart-btn');
-    buttons.forEach((btn, i) => {
-        if (i === index) btn.classList.add('active');
-        else btn.classList.remove('active');
-    });
+    document.querySelectorAll('.chart-btn').forEach((btn, i) => i === index ? btn.classList.add('active') : btn.classList.remove('active'));
 };
 
-// --- 4. TERMINAL LOGIC ---
-document.querySelectorAll('.cmd-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        const log = document.getElementById('terminal-log');
-        if (log && !this.classList.contains('chart-btn')) { // Don't log chart clicks
-            const time = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi' });
-            log.innerHTML += `> [${time}] EXECUTING: ${this.innerText}...<br>`;
-            log.scrollTop = log.scrollHeight;
-        }
-    });
-});
-
-// --- 5. LIVE WEBSOCKET CONNECTION ---
-// Make sure this matches your FastAPI server address
-const socket = io('http://localhost:8000');
-
-socket.on('connect', () => {
-    console.log('🟢 Connected to Python Backend!');
-});
-
-socket.on('telemetry_update', (data) => {
-    // 1. Update text
-    const batEl = document.getElementById('val-battery');
-    const tempEl = document.getElementById('val-temp');
-    const rssiEl = document.getElementById('val-rssi');
-
-    if (batEl) batEl.innerText = data.battery.toFixed(1) + '%';
-    if (tempEl) tempEl.innerText = data.sysTemp.toFixed(1) + '°C';
-    if (rssiEl) rssiEl.innerText = data.rssi + ' dBm';
-
-    // 2. Update chart data for ALL lines (even hidden ones)
-    if (window.signalChart) {
-        const timeNow = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi' });
-        
-        window.signalChart.data.labels.push(timeNow);
-        window.signalChart.data.datasets[0].data.push(data.rssi);
-        window.signalChart.data.datasets[1].data.push(data.battery);
-        window.signalChart.data.datasets[2].data.push(data.sysTemp);
-
-        if (window.signalChart.data.labels.length > 20) {
-            window.signalChart.data.labels.shift();
-            window.signalChart.data.datasets[0].data.shift();
-            window.signalChart.data.datasets[1].data.shift();
-            window.signalChart.data.datasets[2].data.shift();
-        }
-        window.signalChart.update();
-    }
-});
-
-// --- 6. SENSOR FUSION LOGIC ---
-
-// Link the slider to the canvas opacity
+// --- 4. SENSOR FUSION HEATMAP LOGIC ---
 const slider = document.getElementById('opacity-slider');
 const thermalCanvas = document.getElementById('thermal-canvas');
-
-if (slider && thermalCanvas) {
-    slider.addEventListener('input', (e) => {
-        thermalCanvas.style.opacity = e.target.value / 100;
-    });
-}
+if (slider && thermalCanvas) slider.addEventListener('input', (e) => thermalCanvas.style.opacity = e.target.value / 100);
 
 function getThermalColor(temp) {
-    const min = 20;
-    const max = 80;
-    const percentage = Math.max(0, Math.min(100, ((temp - min) / (max - min)) * 100));
-    
-    // We use a "Flame" palette: Blue (cold) -> Yellow -> Red (hot)
-    if (percentage < 25) return `rgba(0, 0, 255, ${percentage/100})`; // Cold
-    if (percentage < 75) return `rgba(255, 255, 0, 0.6)`; // Warm
-    return `rgba(255, 0, 0, 0.8)`; // FIRE!
+    const p = Math.max(0, Math.min(100, ((temp - 20) / 60) * 100));
+    if (p < 25) return `rgba(0, 0, 255, ${p/100})`;
+    if (p < 75) return `rgba(255, 255, 0, 0.6)`;
+    return `rgba(255, 0, 0, 0.8)`;
 }
 
 function drawHeatmap(thermalData) {
@@ -155,48 +71,71 @@ function drawHeatmap(thermalData) {
     const cellW = canvas.width / 8;
     const cellH = canvas.height / 8;
     let maxTemp = 0;
-
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     for (let i = 0; i < 64; i++) {
         const t = thermalData[i];
         if (t > maxTemp) maxTemp = t;
         ctx.fillStyle = getThermalColor(t);
         ctx.fillRect((i % 8) * cellW, Math.floor(i / 8) * cellH, cellW - 1, cellH - 1);
     }
-
-    // --- UPDATED LOGIC START ---
-    document.getElementById('thermal-max').innerText = maxTemp.toFixed(1);
     
-    const alertBadge = document.getElementById('fire-alert');
-    const healthText = document.getElementById('forest-health');
-
-    if (maxTemp > 70) {
-        // 🔥 CRITICAL STATE: FIRE
-        alertBadge.style.display = 'inline-block';
-        healthText.innerText = "CRITICAL: FIRE DETECTED";
-        healthText.className = "health-critical"; // Changes color and starts blink
-    } 
-    else if (maxTemp > 45) {
-        // ⚠️ WARNING STATE: HEAT STRESS
-        alertBadge.style.display = 'none';
-        healthText.innerText = "WARNING: THERMAL STRESS";
-        healthText.className = "health-warning"; // Changes color to yellow
-    } 
-    else {
-        // 🟢 STABLE STATE: HEALTHY
-        alertBadge.style.display = 'none';
-        healthText.innerText = "EXCELLENT";
-        healthText.className = "health-stable"; // Changes color back to green
+    document.getElementById('thermal-max').innerText = maxTemp.toFixed(1);
+    const alert = document.getElementById('fire-alert');
+    const health = document.getElementById('forest-health');
+    
+    if (maxTemp > 70) { 
+        alert.style.display = 'inline-block'; health.innerText = "CRITICAL: FIRE DETECTED"; health.className = "health-critical"; 
+    } else if (maxTemp > 45) {
+        alert.style.display = 'none'; health.innerText = "WARNING: THERMAL STRESS"; health.className = "health-warning";
+    } else { 
+        alert.style.display = 'none'; health.innerText = "STABLE"; health.className = "health-stable"; 
     }
-    // --- UPDATED LOGIC END ---
 }
 
-// Update the socket listener to handle the incoming thermal array
-socket.on('telemetry_update', (data) => {
-    // ... (Keep your existing chart/text updates here) ...
+// --- 5. TERMINAL LOGIC ---
+document.querySelectorAll('.cmd-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const log = document.getElementById('terminal-log');
+        if (log && !this.classList.contains('chart-btn')) {
+            const time = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi' });
+            log.innerHTML += `> [${time}] EXECUTING: ${this.innerText}...<br>`;
+            log.scrollTop = log.scrollHeight;
+        }
+    });
+});
 
-    if (data.thermal) {
-        drawHeatmap(data.thermal);
+// --- 6. WEBSOCKET CONNECTION ---
+// EXPLICITLY connecting to localhost:8000
+const socket = io('http://localhost:8000');
+
+socket.on('connect', () => {
+    console.log('🟢 Connected to Flask Backend!');
+});
+
+socket.on('telemetry_update', (data) => {
+    document.getElementById('val-battery').innerText = data.battery.toFixed(1) + '%';
+    document.getElementById('val-temp').innerText = data.sysTemp.toFixed(1) + '°C';
+    document.getElementById('val-rssi').innerText = data.rssi + ' dBm';
+
+    if (window.signalChart) {
+        const time = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi', hour12: false });
+        window.signalChart.data.labels.push(time);
+        window.signalChart.data.datasets[0].data.push(data.rssi);
+        window.signalChart.data.datasets[1].data.push(data.battery);
+        window.signalChart.data.datasets[2].data.push(data.sysTemp);
+        if (window.signalChart.data.labels.length > 20) {
+            window.signalChart.data.labels.shift();
+            window.signalChart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        window.signalChart.update();
     }
+    
+    if (data.lat && data.lng && satelliteMarker) {
+        const newPos = [data.lat, data.lng];
+        satelliteMarker.setLatLng(newPos);
+        orbitPath.addLatLng(newPos);
+    }
+
+    if (data.thermal) drawHeatmap(data.thermal);
 });

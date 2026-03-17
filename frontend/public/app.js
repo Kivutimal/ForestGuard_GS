@@ -10,20 +10,24 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// --- 2. MAP LOGIC (Live Satellite Tracking) ---
+// --- 2. MAP LOGIC (Real-Time Tracking) ---
 const mapElement = document.getElementById('map-container');
 let satelliteMarker;
 let orbitPath;
+let map;
 
 if (mapElement) {
-    const map = L.map('map-container').setView([-1.286, 36.817], 7);
+    // Start view zoomed out to see the world
+    map = L.map('map-container').setView([0, 0], 3);
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', { pane: 'shadowPane' }).addTo(map);
 
-    const satIcon = L.divIcon({ html: '<div style="font-size: 24px;">🛰️</div>', className: 'satellite-icon', iconSize: [30, 30] });
-    satelliteMarker = L.marker([-1.286, 36.817], { icon: satIcon }).addTo(map);
+    const satIcon = L.divIcon({ html: '<div style="font-size: 24px; filter: drop-shadow(0 0 10px #66fcf1);">🛰️</div>', className: 'satellite-icon', iconSize: [30, 30] });
+    satelliteMarker = L.marker([0, 0], { icon: satIcon }).addTo(map);
     satelliteMarker.bindPopup("<b>ForestGuard Alpha</b>");
-    orbitPath = L.polyline([], {color: '#66fcf1', weight: 2}).addTo(map);
+    
+    // Trail behind the satellite
+    orbitPath = L.polyline([], {color: '#66fcf1', weight: 2, opacity: 0.6}).addTo(map);
 }
 
 // --- 3. CHART LOGIC (Selectable Plots) ---
@@ -89,35 +93,20 @@ function drawHeatmap(thermalData) {
     } else if (maxTemp > 45) {
         alert.style.display = 'none'; health.innerText = "WARNING: THERMAL STRESS"; health.className = "health-warning";
     } else { 
-        alert.style.display = 'none'; health.innerText = "STABLE"; health.className = "health-stable"; 
+        alert.style.display = 'none'; health.innerText = "EXCELLENT"; health.className = "health-stable"; 
     }
 }
 
-// --- 5. TERMINAL LOGIC ---
-document.querySelectorAll('.cmd-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        const log = document.getElementById('terminal-log');
-        if (log && !this.classList.contains('chart-btn')) {
-            const time = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi' });
-            log.innerHTML += `> [${time}] EXECUTING: ${this.innerText}...<br>`;
-            log.scrollTop = log.scrollHeight;
-        }
-    });
-});
-
-// --- 6. WEBSOCKET CONNECTION ---
-// EXPLICITLY connecting to localhost:8000
+// --- 5. WEBSOCKET CONNECTION ---
 const socket = io('http://localhost:8000');
 
-socket.on('connect', () => {
-    console.log('🟢 Connected to Flask Backend!');
-});
-
 socket.on('telemetry_update', (data) => {
+    // Update Text
     document.getElementById('val-battery').innerText = data.battery.toFixed(1) + '%';
     document.getElementById('val-temp').innerText = data.sysTemp.toFixed(1) + '°C';
     document.getElementById('val-rssi').innerText = data.rssi + ' dBm';
 
+    // Update Chart
     if (window.signalChart) {
         const time = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Nairobi', hour12: false });
         window.signalChart.data.labels.push(time);
@@ -131,10 +120,14 @@ socket.on('telemetry_update', (data) => {
         window.signalChart.update();
     }
     
+    // Move Satellite on Map
     if (data.lat && data.lng && satelliteMarker) {
         const newPos = [data.lat, data.lng];
         satelliteMarker.setLatLng(newPos);
         orbitPath.addLatLng(newPos);
+        
+        // Follow the satellite
+        map.panTo(newPos, { animate: true, duration: 1.0 });
     }
 
     if (data.thermal) drawHeatmap(data.thermal);

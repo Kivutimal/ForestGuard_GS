@@ -23,21 +23,15 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 
 # ────────────────────────────────────────────────────────────
-# HELPERS
+# OPENCV — HELPERS
 # ────────────────────────────────────────────────────────────
 
 def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
-    """
-    Find significant contours in a binary mask and return their
-    bounding boxes as normalised coordinates (0.0–1.0) so the
-    frontend can draw them at any display size.
-    """
     H, W   = img_shape[:2]
     total  = H * W
     kernel = np.ones((9, 9), np.uint8)
     closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
     regions = []
     for c in contours:
         area = cv2.contourArea(c)
@@ -45,21 +39,17 @@ def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
             continue
         x, y, w, h = cv2.boundingRect(c)
         regions.append({
-            "x":     round(x / W, 4),
-            "y":     round(y / H, 4),
-            "w":     round(w / W, 4),
-            "h":     round(h / H, 4),
+            "x": round(x / W, 4), "y": round(y / H, 4),
+            "w": round(w / W, 4), "h": round(h / H, 4),
             "area_pct": round(area / total * 100, 2),
             "label": label
         })
-
-    # Return largest regions first
     regions.sort(key=lambda r: r["area_pct"], reverse=True)
     return regions[:max_regions]
 
 
 # ────────────────────────────────────────────────────────────
-# RGB ANALYSIS
+# OPENCV — RGB ANALYSIS
 # ────────────────────────────────────────────────────────────
 
 def cv_analyze_rgb(img_bgr):
@@ -98,27 +88,91 @@ def cv_analyze_rgb(img_bgr):
                   'high'     if bare_pct > 20 or edge_density > 12 else
                   'medium'   if bare_pct > 8  else 'low')
 
-    # Spatial regions — what the frontend will draw boxes around
     bare_regions = get_regions(bare_mask, img_bgr.shape, label='Cleared/Deforested')
     burn_regions = get_regions(burn_mask, img_bgr.shape, label='Burn Scar')
 
     return dict(
-        vegetation_pct   = veg_pct,
-        bare_pct         = bare_pct,
-        burn_pct         = burn_pct,
-        ndvi_proxy       = mean_ndvi,
-        edge_density     = edge_density,
-        health_score     = health,
-        health_grade     = grade,
-        fire_risk        = fire_risk,
+        vegetation_pct     = veg_pct,
+        bare_pct           = bare_pct,
+        burn_pct           = burn_pct,
+        ndvi_proxy         = mean_ndvi,
+        edge_density       = edge_density,
+        health_score       = health,
+        health_grade       = grade,
+        fire_risk          = fire_risk,
         deforestation_risk = defor_risk,
-        bare_regions     = bare_regions,
-        burn_regions     = burn_regions,
+        bare_regions       = bare_regions,
+        burn_regions       = burn_regions,
     )
 
 
 # ────────────────────────────────────────────────────────────
-# CHANGE DETECTION
+# OPENCV — ROAD / LOGGING TRACK DETECTION
+# ────────────────────────────────────────────────────────────
+
+def cv_detect_roads(img_bgr):
+    H, W = img_bgr.shape[:2]
+
+    # Suppress green canopy so it doesn't create false edges
+    hsv      = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    veg_mask = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
+    suppressed = img_bgr.copy()
+    suppressed[veg_mask > 0] = [40, 60, 40]
+
+    # CLAHE contrast boost — makes faint dirt tracks visible
+    gray  = cv2.cvtColor(suppressed, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    gray  = clahe.apply(gray)
+
+    # Top-hat filter isolates thin bright linear features (roads)
+    k_h    = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
+    k_v    = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 15))
+    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_h)
+    tophat = cv2.add(tophat, cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_v))
+
+    edges = cv2.Canny(tophat, 30, 90)
+    edges = cv2.dilate(edges, np.ones((2, 2), np.uint8))
+
+    min_len = int(min(H, W) * 0.08)
+    lines   = cv2.HoughLinesP(
+        edges, rho=1, theta=np.pi / 180,
+        threshold=40, minLineLength=min_len,
+        maxLineGap=int(min_len * 0.4)
+    )
+
+    if lines is None:
+        return {"road_segments": [], "road_count": 0, "road_coverage_pct": 0.0}
+
+    segments        = []
+    road_pixel_mask = np.zeros((H, W), dtype=np.uint8)
+
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+        if length < min_len:
+            continue
+        angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+        if angle < 5 or angle > 175:
+            continue
+        segments.append({
+            "x1": round(x1 / W, 4), "y1": round(y1 / H, 4),
+            "x2": round(x2 / W, 4), "y2": round(y2 / H, 4),
+            "length_pct": round(length / np.sqrt(H**2 + W**2) * 100, 2)
+        })
+        cv2.line(road_pixel_mask, (x1, y1), (x2, y2), 255, thickness=6)
+
+    road_coverage = round(cv2.countNonZero(road_pixel_mask) / (H * W) * 100, 2)
+    segments.sort(key=lambda s: s["length_pct"], reverse=True)
+
+    return {
+        "road_segments":     segments[:20],
+        "road_count":        len(segments),
+        "road_coverage_pct": road_coverage
+    }
+
+
+# ────────────────────────────────────────────────────────────
+# OPENCV — CHANGE DETECTION
 # ────────────────────────────────────────────────────────────
 
 def cv_change_detect(img_a, img_b):
@@ -133,30 +187,25 @@ def cv_change_detect(img_a, img_b):
     change_pct = round(cv2.countNonZero(thresh) / total * 100, 1)
 
     def veg_pct(img):
-        hsv  = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         return cv2.countNonZero(
             cv2.inRange(hsv, np.array([35,40,40]), np.array([85,255,255]))) / total * 100
 
     def bare_pct(img):
-        hsv  = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         return cv2.countNonZero(
             cv2.inRange(hsv, np.array([8,30,40]), np.array([30,220,210]))) / total * 100
 
     va, vb = veg_pct(a), veg_pct(b)
     ba, bb = bare_pct(a), bare_pct(b)
 
-    # Regions that changed — where bare ground appeared in the "after" image
-    bare_after_mask = cv2.inRange(
-        cv2.cvtColor(b, cv2.COLOR_BGR2HSV),
-        np.array([8,30,40]), np.array([30,220,210]))
-    # Only flag pixels that were NOT bare in the before image
-    bare_before_mask = cv2.inRange(
-        cv2.cvtColor(a, cv2.COLOR_BGR2HSV),
-        np.array([8,30,40]), np.array([30,220,210]))
-    new_bare = cv2.bitwise_and(bare_after_mask,
-                               cv2.bitwise_not(bare_before_mask))
+    bare_after  = cv2.inRange(cv2.cvtColor(b, cv2.COLOR_BGR2HSV),
+                              np.array([8,30,40]), np.array([30,220,210]))
+    bare_before = cv2.inRange(cv2.cvtColor(a, cv2.COLOR_BGR2HSV),
+                              np.array([8,30,40]), np.array([30,220,210]))
+    new_bare = cv2.bitwise_and(bare_after, cv2.bitwise_not(bare_before))
 
-    change_regions_raw = get_regions(thresh, (h, w), label='Changed area')
+    change_regions_raw = get_regions(thresh,   (h, w), label='Changed area')
     new_bare_regions   = get_regions(new_bare, (h, w), label='Newly cleared')
 
     dilated    = cv2.dilate(thresh, np.ones((7,7), np.uint8), iterations=2)
@@ -165,12 +214,8 @@ def cv_change_detect(img_a, img_b):
 
     return dict(
         change_pct       = change_pct,
-        veg_before       = round(va, 1),
-        veg_after        = round(vb, 1),
-        veg_delta        = round(vb - va, 1),
-        bare_before      = round(ba, 1),
-        bare_after       = round(bb, 1),
-        bare_delta       = round(bb - ba, 1),
+        veg_before       = round(va, 1), veg_after  = round(vb, 1), veg_delta  = round(vb - va, 1),
+        bare_before      = round(ba, 1), bare_after = round(bb, 1), bare_delta = round(bb - ba, 1),
         change_regions   = n_regions,
         change_boxes     = change_regions_raw,
         new_bare_regions = new_bare_regions,
@@ -213,6 +258,7 @@ def analyze_image():
     if img is None:
         return jsonify({"error": "Could not decode image"}), 500
     result = cv_analyze_rgb(img)
+    result.update(cv_detect_roads(img))
     result["filename"] = filename
     return jsonify(result)
 

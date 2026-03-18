@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ForestGuard | Monitoring</title>
-    <!-- Map, Chart, & WebSocket Engines -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -47,13 +46,11 @@
                     <button class="chart-btn" onclick="showChart(2)">🌡️ Temp</button>
                 </div>
             </div>
-            
             <div class="telemetry-stats-row">
                 <span>🔋 Bat: <span id="val-battery" class="cyan">--%</span></span>
                 <span>🌡️ Temp: <span id="val-temp" class="cyan">--°C</span></span>
                 <span>📡 RSSI: <span id="val-rssi" class="cyan">--dBm</span></span>
             </div>
-
             <div id="chart-container" class="display-box chart-height"></div>
         </section>
 
@@ -63,19 +60,149 @@
                 <span>🌲 Payload: Sensor Fusion</span>
                 <div id="fire-alert" class="badge danger-alert">⚠️ FIRE DETECTED</div>
             </div>
-            
             <div class="display-box fusion-viewer">
                 <img id="rgb-image" src="Forest_img.jpg" class="satellite-img">
                 <canvas id="thermal-canvas" width="400" height="300" class="thermal-layer"></canvas>
             </div>
-
             <div class="fusion-controls-container">
                 <label class="control-label">Thermal Opacity Overlay</label>
                 <input type="range" id="opacity-slider" min="0" max="100" value="50" class="full-width-slider">
-                
                 <div class="status-footer-row">
                     <span>Max Heat: <span id="thermal-max" class="cyan">--</span>°C</span>
                     <span>Forest Health: <span id="forest-health" class="health-excellent">EXCELLENT</span></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 🛰️ PAYLOAD ANALYZER -->
+        <section class="panel payload-section">
+            <div class="panel-header-flex">
+                <span>🛰️ Payload Analyzer</span>
+                <div class="payload-tabs">
+                    <button class="chart-btn active" onclick="switchPayloadTab('rgb')">📷 RGB Analysis</button>
+                    <button class="chart-btn" onclick="switchPayloadTab('change')">🔍 Change Detection</button>
+                </div>
+            </div>
+
+            <!-- RGB TAB -->
+            <div id="payload-rgb" class="payload-tab-content">
+                <div class="payload-grid">
+                    <div class="payload-left">
+                        <div class="sub-label">Select sample image</div>
+                        <select id="sample-select" class="payload-select" onchange="previewSample()">
+                            <option value="">-- loading samples --</option>
+                        </select>
+                        <div class="img-preview-box" id="rgb-preview-box">
+                            <span class="loading-text" style="font-size:0.8rem;">Select a sample above</span>
+                        </div>
+                        <button class="cmd-btn" id="analyze-btn" onclick="runRGBAnalysis()" disabled style="width:100%; margin-top:10px;">▶ Run OpenCV Analysis</button>
+                        <div id="analyze-loading" class="payload-loading" style="display:none;">
+                            <div class="mini-spinner"></div> Analyzing with OpenCV…
+                        </div>
+                    </div>
+                    <div class="payload-right" id="rgb-results" style="display:none;">
+                        <div class="metrics-row">
+                            <div class="metric-box">
+                                <div class="metric-big" id="r-score" style="color:var(--success-green)">--</div>
+                                <div class="metric-sub">Health score</div>
+                                <div class="metric-grade" id="r-grade">GRADE --</div>
+                            </div>
+                            <div class="metric-box">
+                                <div class="metric-big" id="r-ndvi" style="color:#66fcf1">--</div>
+                                <div class="metric-sub">NDVI proxy</div>
+                                <div class="metric-grade" id="r-edge">edges: --%</div>
+                            </div>
+                        </div>
+                        <div class="bar-row">
+                            <span class="bar-lbl">🌿 Vegetation</span>
+                            <div class="bar-track"><div class="bar-fill bar-green" id="bar-veg"></div></div>
+                            <span class="bar-val" id="val-veg" style="color:var(--success-green)">--%</span>
+                        </div>
+                        <div class="bar-row">
+                            <span class="bar-lbl">🟤 Bare/cleared</span>
+                            <div class="bar-track"><div class="bar-fill bar-fill-amber" id="bar-bare"></div></div>
+                            <span class="bar-val" id="val-bare" style="color:#f1c40f">--%</span>
+                        </div>
+                        <div class="bar-row">
+                            <span class="bar-lbl">🔥 Burn area</span>
+                            <div class="bar-track"><div class="bar-fill bar-fill-red" id="bar-burn"></div></div>
+                            <span class="bar-val" id="val-burn" style="color:var(--danger-red)">--%</span>
+                        </div>
+                        <div class="risk-row">
+                            <div>
+                                <div class="sub-label">Fire risk</div>
+                                <span class="risk-badge" id="badge-fire">--</span>
+                            </div>
+                            <div>
+                                <div class="sub-label">Deforestation risk</div>
+                                <span class="risk-badge" id="badge-defor">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHANGE DETECTION TAB -->
+            <div id="payload-change" class="payload-tab-content" style="display:none;">
+                <div class="change-selects">
+                    <div class="change-col">
+                        <div class="sub-label">📅 Before image</div>
+                        <select id="before-select" class="payload-select" onchange="previewChange('before')">
+                            <option value="">-- select --</option>
+                        </select>
+                        <div class="img-preview-box" id="before-preview-box" style="height:160px;">
+                            <span class="loading-text" style="font-size:0.8rem;">Select image</span>
+                        </div>
+                    </div>
+                    <div class="change-col">
+                        <div class="sub-label">📅 After image</div>
+                        <select id="after-select" class="payload-select" onchange="previewChange('after')">
+                            <option value="">-- select --</option>
+                        </select>
+                        <div class="img-preview-box" id="after-preview-box" style="height:160px;">
+                            <span class="loading-text" style="font-size:0.8rem;">Select image</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="cmd-btn" id="compare-btn" onclick="runChangeDetect()" disabled style="width:100%; margin-top:12px;">🔍 Detect Changes</button>
+                <div id="compare-loading" class="payload-loading" style="display:none;">
+                    <div class="mini-spinner"></div> Comparing images…
+                </div>
+                <div id="change-results" style="display:none; margin-top:16px;">
+                    <div class="metrics-row">
+                        <div class="metric-box">
+                            <div class="metric-big" id="ch-change" style="color:#f1c40f">--%</div>
+                            <div class="metric-sub">Pixels changed</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-big" id="ch-regions" style="color:#66fcf1">--</div>
+                            <div class="metric-sub">Change regions</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-big" id="ch-veg-delta" style="color:var(--success-green)">--</div>
+                            <div class="metric-sub">Veg. Δ%</div>
+                        </div>
+                    </div>
+                    <div class="bar-row" style="margin-top:10px;">
+                        <span class="bar-lbl">Veg before</span>
+                        <div class="bar-track"><div class="bar-fill bar-green" id="bar-veg-b"></div></div>
+                        <span class="bar-val" id="val-veg-b" style="color:var(--success-green)">--%</span>
+                    </div>
+                    <div class="bar-row">
+                        <span class="bar-lbl">Veg after</span>
+                        <div class="bar-track"><div class="bar-fill bar-green" id="bar-veg-a"></div></div>
+                        <span class="bar-val" id="val-veg-a" style="color:var(--success-green)">--%</span>
+                    </div>
+                    <div class="risk-row" style="margin-top:12px;">
+                        <div>
+                            <div class="sub-label">Deforestation detected</div>
+                            <span id="ch-defor-flag" style="font-weight:bold;">—</span>
+                        </div>
+                        <div>
+                            <div class="sub-label">Bare ground change</div>
+                            <span id="ch-bare-delta" style="font-family:monospace; color:#f1c40f;">--</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

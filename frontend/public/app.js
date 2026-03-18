@@ -132,3 +132,221 @@ socket.on('telemetry_update', (data) => {
 
     if (data.thermal) drawHeatmap(data.thermal);
 });
+
+// ─────────────────────────────────────────────────────
+// PAYLOAD ANALYZER — talks to Flask OpenCV endpoints
+// ─────────────────────────────────────────────────────
+
+// Load sample list from backend on page load
+async function loadSamples() {
+    const selectors = ['sample-select','before-select','after-select'].map(id => document.getElementById(id)).filter(Boolean);
+    if (!selectors.length) return;
+
+    try {
+        const res   = await fetch('/api/samples');
+        const files = await res.json();
+
+        const LABELS = {
+            'forest_healthy.jpg':     '🌳 Healthy forest',
+            'forest_deforested.jpg':  '🪵 Deforested area',
+            'forest_burn.jpg':        '🔥 Burn scar',
+            'forest_rainforest.jpg':  '🌿 Dense rainforest',
+            'forest_stressed.jpg':    '⚠️ Drought stressed',
+        };
+
+        selectors.forEach(sel => {
+            sel.innerHTML = '<option value="">-- select image --</option>';
+            files.forEach(f => {
+                const opt   = document.createElement('option');
+                opt.value   = f;
+                opt.innerText = LABELS[f] || f;
+                sel.appendChild(opt);
+            });
+        });
+
+        // Enable compare button only when both are selected
+        ['before-select','after-select'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', checkCompareReady);
+        });
+
+    } catch(e) {
+        selectors.forEach(sel => {
+            sel.innerHTML = '<option value="">⚠️ Backend offline</option>';
+        });
+    }
+}
+
+// Preview selected sample in the RGB tab
+function previewSample() {
+    const sel = document.getElementById('sample-select');
+    const box = document.getElementById('rgb-preview-box');
+    const btn = document.getElementById('analyze-btn');
+    if (!sel || !box) return;
+
+    box.innerHTML = '';
+    if (!sel.value) { btn.disabled = true; return; }
+
+    const img = document.createElement('img');
+    img.src = '/samples/' + sel.value;
+    img.style.cssText = 'width:100%; height:100%; object-fit:cover;';
+    box.appendChild(img);
+    btn.disabled = false;
+    document.getElementById('rgb-results').style.display = 'none';
+}
+
+// Preview in change detection tab
+function previewChange(which) {
+    const sel = document.getElementById(which + '-select');
+    const box = document.getElementById(which + '-preview-box');
+    if (!sel || !box) return;
+
+    box.innerHTML = '';
+    if (!sel.value) return;
+
+    const img = document.createElement('img');
+    img.src = '/samples/' + sel.value;
+    img.style.cssText = 'width:100%; height:100%; object-fit:cover;';
+    box.appendChild(img);
+    checkCompareReady();
+}
+
+function checkCompareReady() {
+    const b = document.getElementById('before-select');
+    const a = document.getElementById('after-select');
+    const btn = document.getElementById('compare-btn');
+    if (btn) btn.disabled = !(b && a && b.value && a.value);
+}
+
+// Run OpenCV RGB analysis via Flask
+async function runRGBAnalysis() {
+    const sel = document.getElementById('sample-select');
+    if (!sel || !sel.value) return;
+
+    const btn     = document.getElementById('analyze-btn');
+    const loading = document.getElementById('analyze-loading');
+    const results = document.getElementById('rgb-results');
+
+    btn.disabled = true;
+    loading.style.display = 'flex';
+    results.style.display = 'none';
+
+    try {
+        const res  = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: sel.value })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderRGBResults(data);
+    } catch(e) {
+        alert('Analysis error: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        loading.style.display = 'none';
+    }
+}
+
+function renderRGBResults(d) {
+    const scoreColor = d.health_score >= 70 ? 'var(--success-green)' :
+                       d.health_score >= 40 ? '#f1c40f' : '#e74c3c';
+
+    document.getElementById('r-score').innerText = d.health_score;
+    document.getElementById('r-score').style.color = scoreColor;
+    document.getElementById('r-grade').innerText = 'GRADE ' + d.health_grade;
+    document.getElementById('r-ndvi').innerText  = d.ndvi_proxy.toFixed(2);
+    document.getElementById('r-edge').innerText  = 'edges: ' + d.edge_density + '%';
+
+    setBar('bar-veg',  'val-veg',  d.vegetation_pct);
+    setBar('bar-bare', 'val-bare', d.bare_pct);
+    setBar('bar-burn', 'val-burn', d.burn_pct);
+
+    setRiskBadge('badge-fire',  d.fire_risk);
+    setRiskBadge('badge-defor', d.deforestation_risk);
+
+    document.getElementById('rgb-results').style.display = 'block';
+}
+
+// Run OpenCV change detection
+async function runChangeDetect() {
+    const before = document.getElementById('before-select').value;
+    const after  = document.getElementById('after-select').value;
+    if (!before || !after) return;
+
+    const btn     = document.getElementById('compare-btn');
+    const loading = document.getElementById('compare-loading');
+    const results = document.getElementById('change-results');
+
+    btn.disabled = true;
+    loading.style.display = 'flex';
+    results.style.display = 'none';
+
+    try {
+        const res  = await fetch('/api/compare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ before, after })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderChangeResults(data);
+    } catch(e) {
+        alert('Compare error: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        loading.style.display = 'none';
+    }
+}
+
+function renderChangeResults(d) {
+    document.getElementById('ch-change').innerText  = d.change_pct + '%';
+    document.getElementById('ch-regions').innerText = d.change_regions;
+
+    const delta = d.veg_delta;
+    const dEl = document.getElementById('ch-veg-delta');
+    dEl.innerText = (delta >= 0 ? '+' : '') + delta + '%';
+    dEl.style.color = delta >= 0 ? 'var(--success-green)' : '#e74c3c';
+
+    setBar('bar-veg-b', 'val-veg-b', d.veg_before);
+    setBar('bar-veg-a', 'val-veg-a', d.veg_after);
+
+    const deforested = d.veg_delta < -10 || d.bare_delta > 10;
+    const flagEl = document.getElementById('ch-defor-flag');
+    flagEl.innerText = deforested ? '⚠️ YES — Vegetation loss detected' : '✓ Not detected';
+    flagEl.style.color = deforested ? '#e74c3c' : 'var(--success-green)';
+
+    const bEl = document.getElementById('ch-bare-delta');
+    bEl.innerText = (d.bare_delta >= 0 ? '+' : '') + d.bare_delta + '%';
+    bEl.style.color = d.bare_delta > 5 ? '#e74c3c' : '#f1c40f';
+
+    document.getElementById('change-results').style.display = 'block';
+}
+
+// Switch between RGB and Change Detection tabs
+function switchPayloadTab(tab) {
+    document.getElementById('payload-rgb').style.display    = tab === 'rgb'    ? 'block' : 'none';
+    document.getElementById('payload-change').style.display = tab === 'change' ? 'block' : 'none';
+    document.querySelectorAll('.payload-tabs .chart-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', (i === 0 && tab === 'rgb') || (i === 1 && tab === 'change'));
+    });
+}
+
+// ── HELPERS ──
+function setBar(barId, valId, pct) {
+    const capped = Math.min(100, pct);
+    document.getElementById(barId).style.width = capped + '%';
+    document.getElementById(valId).innerText   = pct + '%';
+}
+
+function setRiskBadge(id, level) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className  = 'risk-badge risk-' + level;
+    el.innerText  = level.toUpperCase();
+}
+
+// Auto-load samples when the dashboard page is open
+if (document.getElementById('sample-select')) {
+    loadSamples();
+}

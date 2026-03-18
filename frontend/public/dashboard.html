@@ -30,6 +30,7 @@
     </nav>
 
     <main class="dashboard-grid">
+
         <!-- 🌍 LIVE MAP -->
         <section class="panel map-panel">
             <div class="panel-header">🌍 Live Orbital Path</div>
@@ -54,48 +55,36 @@
             <div id="chart-container" class="display-box chart-height"></div>
         </section>
 
-        <!-- 🌲 SENSOR FUSION PAYLOAD -->
-        <section class="panel">
-            <div class="panel-header-flex">
-                <span>🌲 Payload: Sensor Fusion</span>
-                <div id="fire-alert" class="badge danger-alert">⚠️ FIRE DETECTED</div>
-            </div>
-            <div class="display-box fusion-viewer">
-                <img id="rgb-image" src="Forest_img.jpg" class="satellite-img">
-                <canvas id="thermal-canvas" width="400" height="300" class="thermal-layer"></canvas>
-            </div>
-            <div class="fusion-controls-container">
-                <label class="control-label">Thermal Opacity Overlay</label>
-                <input type="range" id="opacity-slider" min="0" max="100" value="50" class="full-width-slider">
-                <div class="status-footer-row">
-                    <span>Max Heat: <span id="thermal-max" class="cyan">--</span>°C</span>
-                    <span>Forest Health: <span id="forest-health" class="health-excellent">EXCELLENT</span></span>
-                </div>
-            </div>
-        </section>
-
         <!-- 🛰️ PAYLOAD ANALYZER -->
         <section class="panel payload-section">
             <div class="panel-header-flex">
                 <span>🛰️ Payload Analyzer</span>
                 <div class="payload-tabs">
                     <button class="chart-btn active" onclick="switchPayloadTab('rgb')">📷 RGB Analysis</button>
+                    <button class="chart-btn" onclick="switchPayloadTab('thermal')">🌡️ Thermal Scan</button>
                     <button class="chart-btn" onclick="switchPayloadTab('change')">🔍 Change Detection</button>
                 </div>
             </div>
 
-            <!-- RGB TAB -->
+            <!-- ── RGB ANALYSIS TAB ── -->
             <div id="payload-rgb" class="payload-tab-content">
                 <div class="payload-grid">
                     <div class="payload-left">
-                        <div class="sub-label">Select sample image</div>
+                        <div class="sub-label">Select image</div>
                         <select id="sample-select" class="payload-select" onchange="previewSample()">
                             <option value="">-- loading samples --</option>
                         </select>
-                        <div class="img-preview-box" id="rgb-preview-box">
+                        <div class="img-canvas-wrap" id="rgb-preview-box">
                             <span class="loading-text" style="font-size:0.8rem;">Select a sample above</span>
+                            <img id="rgb-img" style="display:none;">
+                            <canvas id="rgb-canvas"></canvas>
                         </div>
-                        <button class="cmd-btn" id="analyze-btn" onclick="runRGBAnalysis()" disabled style="width:100%; margin-top:10px;">▶ Run OpenCV Analysis</button>
+                        <div class="canvas-legend" id="rgb-legend" style="display:none;">
+                            <span class="legend-item"><span class="legend-dot" style="background:#f1c40f;"></span>Cleared / bare</span>
+                            <span class="legend-item"><span class="legend-dot" style="background:#e74c3c;"></span>Burn scar</span>
+                        </div>
+                        <button class="cmd-btn" id="analyze-btn" onclick="runRGBAnalysis()" disabled
+                            style="width:100%; margin-top:10px;">▶ Run OpenCV Analysis</button>
                         <div id="analyze-loading" class="payload-loading" style="display:none;">
                             <div class="mini-spinner"></div> Analyzing with OpenCV…
                         </div>
@@ -138,11 +127,65 @@
                                 <span class="risk-badge" id="badge-defor">--</span>
                             </div>
                         </div>
+                        <div id="zone-list-wrap" style="display:none; margin-top:14px;">
+                            <div class="sub-label">Detected zones</div>
+                            <div id="zone-list"></div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- CHANGE DETECTION TAB -->
+            <!-- ── THERMAL SCAN TAB ── -->
+            <div id="payload-thermal" class="payload-tab-content" style="display:none;">
+                <div class="payload-grid">
+                    <div class="payload-left">
+                        <div class="sub-label">AMG8833 · 8×8 grid · per orbital pass</div>
+                        <div class="thermal-grid-wrap">
+                            <div class="thermal-grid" id="thermal-grid"></div>
+                        </div>
+                        <div class="thermal-scale">
+                            <span>20°C</span>
+                            <div class="thermal-scale-bar"></div>
+                            <span>80°C</span>
+                        </div>
+                        <div class="sub-label" style="margin-top:12px;">Load a recorded pass</div>
+                        <div class="thermal-scenario-row">
+                            <button class="cmd-btn btn-sm" onclick="loadThermal('normal')">🌿 Normal</button>
+                            <button class="cmd-btn btn-sm warning" onclick="loadThermal('stress')">⚠️ Heat stress</button>
+                            <button class="cmd-btn btn-sm danger" onclick="loadThermal('fire')">🔥 Fire</button>
+                        </div>
+                    </div>
+                    <div class="payload-right">
+                        <div class="metrics-row">
+                            <div class="metric-box">
+                                <div class="metric-big" id="t-max" style="color:#e74c3c">--°C</div>
+                                <div class="metric-sub">Max temp</div>
+                            </div>
+                            <div class="metric-box">
+                                <div class="metric-big" id="t-avg" style="color:#66fcf1">--°C</div>
+                                <div class="metric-sub">Grid average</div>
+                            </div>
+                            <div class="metric-box">
+                                <div class="metric-big" id="t-hotspots" style="color:#f1c40f">--</div>
+                                <div class="metric-sub">Hotspots &gt;50°C</div>
+                            </div>
+                        </div>
+                        <div class="sub-label">Fire risk</div>
+                        <span class="risk-badge" id="t-risk" style="margin-bottom:12px; display:inline-block;">--</span>
+                        <div class="sub-label" style="margin-top:10px;">Interpretation</div>
+                        <div id="t-interp" style="font-size:0.8rem; line-height:1.7; padding:10px; background:rgba(0,0,0,0.3); border-radius:6px; border-left: 3px solid var(--neon-cyan);">
+                            Select a scenario to load a recorded thermal pass.
+                        </div>
+                        <div class="sub-label" style="margin-top:14px;">Hotspot coordinates</div>
+                        <div id="t-hotspot-list" style="font-size:0.75rem;"></div>
+                        <div style="margin-top:14px; padding:10px; background:rgba(255,200,87,0.07); border-radius:6px; border-left:3px solid #f1c40f; font-size:0.75rem; color:#8a9ba8; line-height:1.7;">
+                            ⚠️ <strong style="color:#f1c40f;">Mission note:</strong> The AMG8833 captures one snapshot per orbital pass — not a live feed. Cross-reference hotspots with the ground sensor network before escalating.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── CHANGE DETECTION TAB ── -->
             <div id="payload-change" class="payload-tab-content" style="display:none;">
                 <div class="change-selects">
                     <div class="change-col">
@@ -150,8 +193,9 @@
                         <select id="before-select" class="payload-select" onchange="previewChange('before')">
                             <option value="">-- select --</option>
                         </select>
-                        <div class="img-preview-box" id="before-preview-box" style="height:160px;">
+                        <div class="img-canvas-wrap" id="before-preview-box" style="height:180px;">
                             <span class="loading-text" style="font-size:0.8rem;">Select image</span>
+                            <img id="before-img" style="display:none;">
                         </div>
                     </div>
                     <div class="change-col">
@@ -159,12 +203,19 @@
                         <select id="after-select" class="payload-select" onchange="previewChange('after')">
                             <option value="">-- select --</option>
                         </select>
-                        <div class="img-preview-box" id="after-preview-box" style="height:160px;">
+                        <div class="img-canvas-wrap" id="after-preview-box" style="height:180px;">
                             <span class="loading-text" style="font-size:0.8rem;">Select image</span>
+                            <img id="after-img" style="display:none;">
+                            <canvas id="after-canvas"></canvas>
                         </div>
                     </div>
                 </div>
-                <button class="cmd-btn" id="compare-btn" onclick="runChangeDetect()" disabled style="width:100%; margin-top:12px;">🔍 Detect Changes</button>
+                <div class="canvas-legend" id="change-legend" style="display:none; margin-top:6px;">
+                    <span class="legend-item"><span class="legend-dot" style="background:#e74c3c;"></span>Newly cleared</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#f39c12;"></span>General change</span>
+                </div>
+                <button class="cmd-btn" id="compare-btn" onclick="runChangeDetect()" disabled
+                    style="width:100%; margin-top:12px;">🔍 Detect Changes</button>
                 <div id="compare-loading" class="payload-loading" style="display:none;">
                     <div class="mini-spinner"></div> Comparing images…
                 </div>
@@ -205,6 +256,7 @@
                     </div>
                 </div>
             </div>
+
         </section>
     </main>
 

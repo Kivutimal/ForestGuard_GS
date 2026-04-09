@@ -44,10 +44,10 @@ if (chartElement) {
         type: 'line',
         data: {
             labels: [],
-            datasets: [
+            datasets:[
                 { label: 'RSSI (dBm)', data: [], borderColor: '#66fcf1', backgroundColor: 'rgba(102,252,241,0.1)', fill: true, tension: 0.4, hidden: false },
-                { label: 'Battery (%)', data: [], borderColor: '#00ff00', backgroundColor: 'rgba(0,255,0,0.1)',     fill: true, tension: 0.4, hidden: true  },
-                { label: 'Temp (°C)',   data: [], borderColor: '#ff9900', backgroundColor: 'rgba(255,153,0,0.1)',   fill: true, tension: 0.4, hidden: true  }
+                { label: 'Battery (%)', data:[], borderColor: '#00ff00', backgroundColor: 'rgba(0,255,0,0.1)',     fill: true, tension: 0.4, hidden: true  },
+                { label: 'Temp (°C)',   data:[], borderColor: '#ff9900', backgroundColor: 'rgba(255,153,0,0.1)',   fill: true, tension: 0.4, hidden: true  }
             ]
         },
         options: {
@@ -95,7 +95,7 @@ socket.on('telemetry_update', (data) => {
     }
 
     if (data.lat && data.lng && satelliteMarker) {
-        const pos = [data.lat, data.lng];
+        const pos =[data.lat, data.lng];
         satelliteMarker.setLatLng(pos);
         orbitPath.addLatLng(pos);
         map.panTo(pos, { animate: true, duration: 1.0 });
@@ -118,7 +118,7 @@ const SAMPLE_LABELS = {
 };
 
 async function loadSamples() {
-    const ids  = ['sample-select', 'before-select', 'after-select'];
+    const ids  =['sample-select', 'before-select', 'after-select'];
     const sels = ids.map(id => document.getElementById(id)).filter(Boolean);
     if (!sels.length) return;
     try {
@@ -221,38 +221,46 @@ function renderRGBResults(data) {
     setRiskBadge('badge-fire',  data.fire_risk);
     setRiskBadge('badge-defor', data.deforestation_risk);
 
-    // Cleared/burn zone list
-    const allZones = [...(data.bare_regions || []), ...(data.burn_regions || [])];
+    // --- UPDATED: Cleared/burn zone list WITH CONFIDENCE SCORES ---
+    const allZones = [...(data.bare_regions || []), ...(data.burn_regions ||[])];
     const zoneWrap = document.getElementById('zone-list-wrap');
     const zoneList = document.getElementById('zone-list');
     if (allZones.length) {
-        zoneList.innerHTML = allZones.map((z, i) => `
+        zoneList.innerHTML = allZones.map((z, i) => {
+            const confClass = z.confidence >= 80 ? 'conf-high' : 'conf-med';
+            return `
             <div class="zone-item">
                 <span class="zone-num">${i + 1}</span>
                 <span class="zone-label">${z.label}</span>
                 <span class="zone-area">${z.area_pct}% of image</span>
-            </div>`).join('');
+                <span class="zone-conf ${confClass}">${z.confidence}% Conf</span>
+            </div>`;
+        }).join('');
         zoneWrap.style.display = 'block';
     } else {
         zoneWrap.style.display = 'none';
     }
 
-    // Road detection results
+    // --- UPDATED: Road detection results WITH CONFIDENCE SCORES ---
     const roadWrap  = document.getElementById('road-list-wrap');
     const roadAlert = document.getElementById('road-alert');
     const roadList  = document.getElementById('road-list');
-    const roads     = data.road_segments || [];
+    const roads     = data.road_segments ||[];
 
     document.getElementById('r-road-count').innerText    = data.road_count || 0;
     document.getElementById('r-road-coverage').innerText = (data.road_coverage_pct || 0) + '%';
 
     if (data.road_count > 0) {
-        roadList.innerHTML = roads.slice(0, 6).map((s, i) => `
+        roadList.innerHTML = roads.slice(0, 6).map((s, i) => {
+            const confClass = s.confidence >= 80 ? 'conf-high' : 'conf-med';
+            return `
             <div class="zone-item">
                 <span class="zone-num" style="background:rgba(0,200,255,0.15); color:#00ccff;">${i + 1}</span>
                 <span class="zone-label">Track segment ${i + 1}</span>
-                <span class="zone-area">${s.length_pct.toFixed(1)}% of frame</span>
-            </div>`).join('');
+                <span class="zone-area">${s.length_pct.toFixed(1)}% len</span>
+                <span class="zone-conf ${confClass}">${s.confidence}% Conf</span>
+            </div>`;
+        }).join('');
         roadWrap.style.display  = 'block';
         roadAlert.style.display = data.road_count >= 4 ? 'block' : 'none';
     } else {
@@ -279,6 +287,7 @@ function drawRegions(data) {
     const W = canvas.width;
     const H = canvas.height;
 
+    // Updated drawBox to show confidence in the canvas label!
     function drawBox(region, color, label) {
         const x = region.x * W, y = region.y * H;
         const w = region.w * W, h = region.h * H;
@@ -287,25 +296,21 @@ function drawRegions(data) {
         ctx.strokeStyle = color;
         ctx.lineWidth   = Math.max(2, W * 0.003);
         ctx.strokeRect(x, y, w, h);
+        
+        const fullLabel = `${label} (${region.confidence}%)`;
         const fs   = Math.max(11, W * 0.018);
         ctx.font   = `bold ${fs}px monospace`;
-        const tw   = ctx.measureText(label).width + 10;
+        const tw   = ctx.measureText(fullLabel).width + 10;
         ctx.fillStyle = color;
         ctx.fillRect(x, y - fs - 6, tw, fs + 6);
         ctx.fillStyle = '#000';
-        ctx.fillText(label, x + 5, y - 3);
+        ctx.fillText(fullLabel, x + 5, y - 3);
     }
 
-    // Cleared zones — yellow
-    (data.bare_regions || []).forEach((r, i) =>
-        drawBox(r, 'rgb(241,196,15)', `Zone ${i + 1}: Cleared`));
+    (data.bare_regions ||[]).forEach((r, i) => drawBox(r, 'rgb(241,196,15)', `Zone ${i + 1}: Cleared`));
+    (data.burn_regions ||[]).forEach((r, i) => drawBox(r, 'rgb(231,76,60)', `Zone ${i + 1}: Burn`));
 
-    // Burn zones — red
-    (data.burn_regions || []).forEach((r, i) =>
-        drawBox(r, 'rgb(231,76,60)', `Zone ${i + 1}: Burn`));
-
-    // Road / logging track segments — cyan lines
-    (data.road_segments || []).forEach((seg, i) => {
+    (data.road_segments ||[]).forEach((seg, i) => {
         const x1 = seg.x1 * W, y1 = seg.y1 * H;
         const x2 = seg.x2 * W, y2 = seg.y2 * H;
         ctx.strokeStyle = 'rgba(0,200,255,0.85)';
@@ -316,12 +321,11 @@ function drawRegions(data) {
         ctx.lineTo(x2, y2);
         ctx.stroke();
 
-        // Label only the first 4
         if (i < 4) {
             const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
             const fs = Math.max(10, W * 0.016);
             ctx.font = `bold ${fs}px monospace`;
-            const label = `Track ${i + 1}`;
+            const label = `Track ${i + 1} (${seg.confidence}%)`;
             const tw    = ctx.measureText(label).width + 8;
             ctx.fillStyle = 'rgba(0,200,255,0.9)';
             ctx.fillRect(mx - tw / 2, my - fs - 4, tw, fs + 6);
@@ -330,10 +334,7 @@ function drawRegions(data) {
         }
     });
 
-    const hasContent = (data.bare_regions?.length || 0) +
-                       (data.burn_regions?.length || 0) +
-                       (data.road_segments?.length || 0) > 0;
-
+    const hasContent = (data.bare_regions?.length || 0) + (data.burn_regions?.length || 0) + (data.road_segments?.length || 0) > 0;
     canvas.style.display = hasContent ? 'block' : 'none';
     document.getElementById('rgb-legend').style.display = hasContent ? 'flex' : 'none';
 }
@@ -344,7 +345,7 @@ function drawRegions(data) {
 // ─────────────────────────────────────────────────────
 const THERMAL_SCENARIOS = {
     normal: {
-        data: [
+        data:[
             24.1,23.8,24.5,25.0,24.3,23.9,24.7,25.2,
             24.8,25.1,24.6,23.7,24.2,25.4,24.9,24.0,
             25.3,24.4,23.6,24.1,25.0,24.8,23.5,24.3,
@@ -357,7 +358,7 @@ const THERMAL_SCENARIOS = {
         interp: 'All cells within the 23–26°C baseline range. Canopy thermal regulation is functioning normally. No anomalies detected — forest health is nominal for this orbital pass.'
     },
     stress: {
-        data: [
+        data:[
             26.2,27.1,28.4,29.0,28.7,27.5,26.8,26.1,
             27.4,29.3,31.2,33.5,34.1,32.8,30.4,27.9,
             28.1,31.0,35.6,38.2,39.4,37.1,33.2,29.3,
@@ -370,7 +371,7 @@ const THERMAL_SCENARIOS = {
         interp: 'Elevated temperatures in the central grid cells (rows 3–5, cols 3–6), peaking at 43°C. Consistent with drought stress or early sub-surface smouldering. Cross-reference with ground sensor humidity and CO₂ before escalating.'
     },
     fire: {
-        data: [
+        data:[
             25.1,26.3,28.7,34.2,41.5,38.4,30.1,26.8,
             26.4,29.8,36.4,48.7,62.3,57.8,42.1,30.5,
             27.2,33.1,44.6,61.5,76.4,71.2,55.3,36.8,
@@ -447,8 +448,7 @@ function loadThermal(scenarioName) {
 function updateThermalFromTelemetry(thermalArray) {
     if (!thermalArray || thermalArray.length !== 64) return;
     THERMAL_SCENARIOS['live'] = { data: thermalArray, interp: 'Live downlink — current orbital pass.' };
-    if (document.getElementById('payload-thermal') &&
-        document.getElementById('payload-thermal').style.display !== 'none') {
+    if (document.getElementById('payload-thermal') && document.getElementById('payload-thermal').style.display !== 'none') {
         loadThermal('live');
     }
 }
@@ -555,13 +555,10 @@ function drawChangeRegions(data) {
         ctx.fillText(label, x + 5, y - 2);
     }
 
-    (data.new_bare_regions || []).forEach((r, i) =>
-        drawBox(r, 'rgb(231,76,60)',  `New clearing ${i + 1}`));
-    (data.change_boxes || []).forEach((r, i) =>
-        drawBox(r, 'rgb(243,156,18)', `Change ${i + 1}`));
+    (data.new_bare_regions ||[]).forEach((r, i) => drawBox(r, 'rgb(231,76,60)',  `New clearing ${i + 1}`));
+    (data.change_boxes ||[]).forEach((r, i) => drawBox(r, 'rgb(243,156,18)', `Change ${i + 1}`));
 
-    const hasRegions = (data.new_bare_regions?.length || 0) +
-                       (data.change_boxes?.length || 0) > 0;
+    const hasRegions = (data.new_bare_regions?.length || 0) + (data.change_boxes?.length || 0) > 0;
     canvas.style.display = hasRegions ? 'block' : 'none';
     document.getElementById('change-legend').style.display = hasRegions ? 'flex' : 'none';
 }
@@ -574,7 +571,7 @@ function switchPayloadTab(tab) {
     document.getElementById('payload-rgb').style.display     = tab === 'rgb'     ? 'block' : 'none';
     document.getElementById('payload-thermal').style.display = tab === 'thermal' ? 'block' : 'none';
     document.getElementById('payload-change').style.display  = tab === 'change'  ? 'block' : 'none';
-    const tabs = ['rgb', 'thermal', 'change'];
+    const tabs =['rgb', 'thermal', 'change'];
     document.querySelectorAll('.payload-tabs .chart-btn').forEach((btn, i) => {
         btn.classList.toggle('active', tabs[i] === tab);
     });

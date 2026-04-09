@@ -25,25 +25,33 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # ────────────────────────────────────────────────────────────
 # OPENCV — HELPERS
 # ────────────────────────────────────────────────────────────
-
 def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
     H, W   = img_shape[:2]
     total  = H * W
     kernel = np.ones((9, 9), np.uint8)
     closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    regions = []
+    regions =[]
+    
     for c in contours:
         area = cv2.contourArea(c)
         if area < total * min_area_frac:
             continue
         x, y, w, h = cv2.boundingRect(c)
+        
+        # Confidence Score Math (Extent)
+        extent = area / float(w * h) if (w * h) > 0 else 0
+        area_pct = round(area / total * 100, 2)
+        confidence = int(min(99, max(45, (extent * 80) + (area_pct * 1.5))))
+        
         regions.append({
             "x": round(x / W, 4), "y": round(y / H, 4),
             "w": round(w / W, 4), "h": round(h / H, 4),
-            "area_pct": round(area / total * 100, 2),
-            "label": label
+            "area_pct": area_pct,
+            "label": label,
+            "confidence": confidence
         })
+        
     regions.sort(key=lambda r: r["area_pct"], reverse=True)
     return regions[:max_regions]
 
@@ -51,7 +59,6 @@ def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
 # ────────────────────────────────────────────────────────────
 # OPENCV — RGB ANALYSIS
 # ────────────────────────────────────────────────────────────
-
 def cv_analyze_rgb(img_bgr):
     H, W  = img_bgr.shape[:2]
     total = H * W
@@ -79,71 +86,67 @@ def cv_analyze_rgb(img_bgr):
         max(0, (mean_ndvi + 0.2) / 1.2 * 100) * 0.30 +
         max(0, 100 - bare_pct * 2 - burn_pct * 4) * 0.15, 1)))
 
-    grade = 'A' if health >= 80 else 'B' if health >= 65 else \
-            'C' if health >= 50 else 'D' if health >= 35 else 'F'
+    grade = 'A' if health >= 80 else 'B' if health >= 65 else 'C' if health >= 50 else 'D' if health >= 35 else 'F'
 
-    fire_risk  = ('critical' if burn_pct > 12 else 'high' if burn_pct > 5  else
-                  'medium'   if burn_pct > 2  else 'low')
-    defor_risk = ('critical' if bare_pct > 40 or edge_density > 18 else
-                  'high'     if bare_pct > 20 or edge_density > 12 else
-                  'medium'   if bare_pct > 8  else 'low')
+    fire_risk  = 'critical' if burn_pct > 12 else 'high' if burn_pct > 5 else 'medium' if burn_pct > 2 else 'low'
+    defor_risk = 'critical' if bare_pct > 40 or edge_density > 18 else 'high' if bare_pct > 20 or edge_density > 12 else 'medium' if bare_pct > 8 else 'low'
 
     bare_regions = get_regions(bare_mask, img_bgr.shape, label='Cleared/Deforested')
     burn_regions = get_regions(burn_mask, img_bgr.shape, label='Burn Scar')
 
     return dict(
-        vegetation_pct     = veg_pct,
-        bare_pct           = bare_pct,
-        burn_pct           = burn_pct,
-        ndvi_proxy         = mean_ndvi,
-        edge_density       = edge_density,
-        health_score       = health,
-        health_grade       = grade,
-        fire_risk          = fire_risk,
-        deforestation_risk = defor_risk,
-        bare_regions       = bare_regions,
-        burn_regions       = burn_regions,
+        vegetation_pct=veg_pct, bare_pct=bare_pct, burn_pct=burn_pct,
+        ndvi_proxy=mean_ndvi, edge_density=edge_density,
+        health_score=health, health_grade=grade,
+        fire_risk=fire_risk, deforestation_risk=defor_risk,
+        bare_regions=bare_regions, burn_regions=burn_regions,
     )
 
 
 # ────────────────────────────────────────────────────────────
-# OPENCV — ROAD / LOGGING TRACK DETECTION
+# OPENCV — ROAD / LOGGING TRACK DETECTION (TUNED)
 # ────────────────────────────────────────────────────────────
-
 def cv_detect_roads(img_bgr):
     H, W = img_bgr.shape[:2]
 
-    # Suppress green canopy so it doesn't create false edges
-    hsv      = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    veg_mask = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
-    suppressed = img_bgr.copy()
-    suppressed[veg_mask > 0] = [40, 60, 40]
+    # 1. Blur to remove leaf shadows
+    blurred = cv2.GaussianBlur(img_bgr, (5, 5), 0)
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    
+    # 2. Strict Bare Earth Mask (We only want to find lines in dirt!)
+    bare_mask = cv2.inRange(hsv, np.array([5, 10, 40]), np.array([35, 220, 255]))
+    bare_mask_dilated = cv2.dilate(bare_mask, np.ones((15, 15), np.uint8), iterations=2)
 
-    # CLAHE contrast boost — makes faint dirt tracks visible
-    gray  = cv2.cvtColor(suppressed, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    # 3. Grayscale and CLAHE Contrast
+    gray  = cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray  = clahe.apply(gray)
 
-    # Top-hat filter isolates thin bright linear features (roads)
+    # 4. Morphological Tophat (Finds thin lines)
     k_h    = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
     k_v    = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 15))
-    tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_h)
-    tophat = cv2.add(tophat, cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_v))
+    tophat = cv2.add(cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_h), cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, k_v))
 
-    edges = cv2.Canny(tophat, 30, 90)
+    # 5. Mask the tophat with our bare earth (Ignores mountain ridges completely)
+    tophat = cv2.bitwise_and(tophat, tophat, mask=bare_mask_dilated)
+
+    # 6. Stricter Canny Edges
+    edges = cv2.Canny(tophat, 50, 150)
     edges = cv2.dilate(edges, np.ones((2, 2), np.uint8))
 
-    min_len = int(min(H, W) * 0.08)
+    # 7. Stricter Hough Lines (Requires longer, more solid lines)
+    min_len = int(min(H, W) * 0.10) # Line must be at least 10% of image
     lines   = cv2.HoughLinesP(
         edges, rho=1, theta=np.pi / 180,
-        threshold=40, minLineLength=min_len,
-        maxLineGap=int(min_len * 0.4)
+        threshold=60, 
+        minLineLength=min_len,
+        maxLineGap=int(min_len * 0.15) # Tiny gaps allowed, no jumping valleys
     )
 
     if lines is None:
-        return {"road_segments": [], "road_count": 0, "road_coverage_pct": 0.0}
+        return {"road_segments":[], "road_count": 0, "road_coverage_pct": 0.0}
 
-    segments        = []
+    segments =[]
     road_pixel_mask = np.zeros((H, W), dtype=np.uint8)
 
     for line in lines:
@@ -151,13 +154,20 @@ def cv_detect_roads(img_bgr):
         length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
         if length < min_len:
             continue
+        
+        # Ignore perfectly horizontal/vertical artifacts
         angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
-        if angle < 5 or angle > 175:
+        if angle < 5 or angle > 175 or (85 < angle < 95):
             continue
+            
+        length_pct = round(length / np.sqrt(H**2 + W**2) * 100, 2)
+        confidence = int(min(99, max(50, 60 + (length_pct * 1.5))))
+        
         segments.append({
             "x1": round(x1 / W, 4), "y1": round(y1 / H, 4),
             "x2": round(x2 / W, 4), "y2": round(y2 / H, 4),
-            "length_pct": round(length / np.sqrt(H**2 + W**2) * 100, 2)
+            "length_pct": length_pct,
+            "confidence": confidence
         })
         cv2.line(road_pixel_mask, (x1, y1), (x2, y2), 255, thickness=6)
 
@@ -165,7 +175,7 @@ def cv_detect_roads(img_bgr):
     segments.sort(key=lambda s: s["length_pct"], reverse=True)
 
     return {
-        "road_segments":     segments[:20],
+        "road_segments":     segments[:15], # Only return top 15 highest confidence roads
         "road_count":        len(segments),
         "road_coverage_pct": road_coverage
     }
@@ -174,7 +184,6 @@ def cv_detect_roads(img_bgr):
 # ────────────────────────────────────────────────────────────
 # OPENCV — CHANGE DETECTION
 # ────────────────────────────────────────────────────────────
-
 def cv_change_detect(img_a, img_b):
     h = min(img_a.shape[0], img_b.shape[0])
     w = min(img_a.shape[1], img_b.shape[1])
@@ -182,27 +191,22 @@ def cv_change_detect(img_a, img_b):
     total = h * w
 
     diff      = cv2.absdiff(a, b)
-    _, thresh = cv2.threshold(
-        cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY), 28, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY), 28, 255, cv2.THRESH_BINARY)
     change_pct = round(cv2.countNonZero(thresh) / total * 100, 1)
 
     def veg_pct(img):
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        return cv2.countNonZero(
-            cv2.inRange(hsv, np.array([35,40,40]), np.array([85,255,255]))) / total * 100
+        return cv2.countNonZero(cv2.inRange(hsv, np.array([35,40,40]), np.array([85,255,255]))) / total * 100
 
     def bare_pct(img):
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        return cv2.countNonZero(
-            cv2.inRange(hsv, np.array([8,30,40]), np.array([30,220,210]))) / total * 100
+        return cv2.countNonZero(cv2.inRange(hsv, np.array([8,30,40]), np.array([30,220,210]))) / total * 100
 
     va, vb = veg_pct(a), veg_pct(b)
     ba, bb = bare_pct(a), bare_pct(b)
 
-    bare_after  = cv2.inRange(cv2.cvtColor(b, cv2.COLOR_BGR2HSV),
-                              np.array([8,30,40]), np.array([30,220,210]))
-    bare_before = cv2.inRange(cv2.cvtColor(a, cv2.COLOR_BGR2HSV),
-                              np.array([8,30,40]), np.array([30,220,210]))
+    bare_after  = cv2.inRange(cv2.cvtColor(b, cv2.COLOR_BGR2HSV), np.array([8,30,40]), np.array([30,220,210]))
+    bare_before = cv2.inRange(cv2.cvtColor(a, cv2.COLOR_BGR2HSV), np.array([8,30,40]), np.array([30,220,210]))
     new_bare = cv2.bitwise_and(bare_after, cv2.bitwise_not(bare_before))
 
     change_regions_raw = get_regions(thresh,   (h, w), label='Changed area')
@@ -213,50 +217,36 @@ def cv_change_detect(img_a, img_b):
     n_regions  = len([c for c in contours if cv2.contourArea(c) > total * 0.005])
 
     return dict(
-        change_pct       = change_pct,
-        veg_before       = round(va, 1), veg_after  = round(vb, 1), veg_delta  = round(vb - va, 1),
-        bare_before      = round(ba, 1), bare_after = round(bb, 1), bare_delta = round(bb - ba, 1),
-        change_regions   = n_regions,
-        change_boxes     = change_regions_raw,
-        new_bare_regions = new_bare_regions,
+        change_pct=change_pct,
+        veg_before=round(va, 1), veg_after=round(vb, 1), veg_delta=round(vb - va, 1),
+        bare_before=round(ba, 1), bare_after=round(bb, 1), bare_delta=round(bb - ba, 1),
+        change_regions=n_regions, change_boxes=change_regions_raw, new_bare_regions=new_bare_regions,
     )
 
 
 # ────────────────────────────────────────────────────────────
-# FLASK ROUTES
+# FLASK ROUTES & SERIAL
 # ────────────────────────────────────────────────────────────
-
 @app.route('/')
-def index():
-    return send_from_directory(FRONTEND_DIR, 'index.html')
+def index(): return send_from_directory(FRONTEND_DIR, 'index.html')
 
 @app.route('/<path:filename>')
-def serve_static(filename):
-    return send_from_directory(FRONTEND_DIR, filename)
+def serve_static(filename): return send_from_directory(FRONTEND_DIR, filename)
 
 @app.route('/api/samples')
 def list_samples():
-    if not os.path.exists(SAMPLES_DIR):
-        return jsonify([])
-    files = sorted(f for f in os.listdir(SAMPLES_DIR)
-                   if f.lower().endswith(('.jpg', '.jpeg', '.png')))
-    return jsonify(files)
+    if not os.path.exists(SAMPLES_DIR): return jsonify([])
+    return jsonify(sorted(f for f in os.listdir(SAMPLES_DIR) if f.lower().endswith(('.jpg', '.jpeg', '.png'))))
 
 @app.route('/samples/<path:filename>')
-def serve_sample(filename):
-    return send_from_directory(SAMPLES_DIR, filename)
+def serve_sample(filename): return send_from_directory(SAMPLES_DIR, filename)
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_image():
     filename = request.get_json().get('filename', '')
-    if not filename:
-        return jsonify({"error": "No filename"}), 400
     path = os.path.join(SAMPLES_DIR, os.path.basename(filename))
-    if not os.path.exists(path):
-        return jsonify({"error": f"Not found: {filename}"}), 404
     img = cv2.imread(path)
-    if img is None:
-        return jsonify({"error": "Could not decode image"}), 500
+    if img is None: return jsonify({"error": "Could not decode image"}), 500
     result = cv_analyze_rgb(img)
     result.update(cv_detect_roads(img))
     result["filename"] = filename
@@ -264,27 +254,14 @@ def analyze_image():
 
 @app.route('/api/compare', methods=['POST'])
 def compare_images():
-    data   = request.get_json()
-    file_a = data.get('before', '')
-    file_b = data.get('after',  '')
-    if not file_a or not file_b:
-        return jsonify({"error": "Need before and after"}), 400
-    pa = os.path.join(SAMPLES_DIR, os.path.basename(file_a))
-    pb = os.path.join(SAMPLES_DIR, os.path.basename(file_b))
-    for p, n in [(pa, file_a), (pb, file_b)]:
-        if not os.path.exists(p):
-            return jsonify({"error": f"Not found: {n}"}), 404
+    data = request.get_json()
+    pa = os.path.join(SAMPLES_DIR, os.path.basename(data.get('before', '')))
+    pb = os.path.join(SAMPLES_DIR, os.path.basename(data.get('after', '')))
     ia, ib = cv2.imread(pa), cv2.imread(pb)
-    if ia is None or ib is None:
-        return jsonify({"error": "Could not read images"}), 500
+    if ia is None or ib is None: return jsonify({"error": "Could not read images"}), 500
     result = cv_change_detect(ia, ib)
-    result.update(before=file_a, after=file_b)
+    result.update(before=data.get('before', ''), after=data.get('after', ''))
     return jsonify(result)
-
-
-# ────────────────────────────────────────────────────────────
-# SERIAL + SOCKETIO
-# ────────────────────────────────────────────────────────────
 
 def get_satellite_pos():
     ts  = load.timescale()
@@ -295,7 +272,7 @@ def get_satellite_pos():
 def read_serial_data():
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        print(f"\n🛰️  Connected to ESP32 on {SERIAL_PORT}")
+        print(f"\n🛰️ Connected to ESP32 on {SERIAL_PORT}")
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
@@ -303,17 +280,13 @@ def read_serial_data():
                     try:
                         data = json.loads(line)
                         lat, lng = get_satellite_pos()
-                        data["lat"] = lat
-                        data["lng"] = lng
+                        data["lat"], data["lng"] = lat, lng
                         socketio.emit('telemetry_update', data)
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError: pass
             socketio.sleep(0.01)
     except Exception as e:
-        print(f"\n❌ SERIAL ERROR: {e}  (telemetry stream inactive)")
+        print(f"\n❌ SERIAL ERROR: {e}")
 
 if __name__ == '__main__':
-    print("🚀 ForestGuard GS → http://localhost:8000")
-    print(f"📁 Samples: {SAMPLES_DIR}")
     socketio.start_background_task(read_serial_data)
     socketio.run(app, host='0.0.0.0', port=8000, allow_unsafe_werkzeug=True)

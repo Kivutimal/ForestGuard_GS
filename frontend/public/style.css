@@ -368,3 +368,34 @@ main {
     color: #f1c40f; 
     border: 1px solid rgba(241, 196, 15, 0.3);
 }
+
+/* ───────────────────────────────────────────────────── */
+/* --- ELECTRICAL POWER SUBSYSTEM (EPS) CSS OVERRIDES -- */
+/* ───────────────────────────────────────────────────── */
+
+/* Forces the EPS section to sit correctly in the grid if needed */
+.eps-section {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Animations for EPS alerts so they grab attention instantly */
+.eps-section .danger-alert {
+    animation: flash-border 2s infinite;
+}
+
+@keyframes flash-border {
+    0% { border-left-color: #e74c3c; }
+    50% { border-left-color: #ff9900; }
+    100% { border-left-color: #e74c3c; }
+}
+
+/* Make sure the main grid accounts for the new panel spacing nicely */
+@media (min-width: 900px) {
+    /* If you want the EPS to sit next to the Map, you can force grid rules */
+    .dashboard-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .map-panel { grid-column: 1 / -1; }
+    .payload-section { grid-column: 1 / -1; }
+}

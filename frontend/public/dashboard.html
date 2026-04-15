@@ -17,7 +17,7 @@
         </div>
         <div class="status-panel">
             <span id="mission-clock" class="badge">EAT: --:--:--</span>
-            <span class="badge nominal">🟢 System: NOMINAL</span>
+            <span class="badge nominal" id="system-status-badge">✅ System: NOMINAL</span>
         </div>
     </header>
 
@@ -30,11 +30,40 @@
     </nav>
 
     <main class="dashboard-grid">
-
+        
         <!-- 🌍 LIVE MAP -->
         <section class="panel map-panel">
             <div class="panel-header">🌍 Live Orbital Path</div>
             <div id="map-container"></div>
+        </section>
+
+        <!-- ⚡ ELECTRICAL POWER SUBSYSTEM (NEW) -->
+        <section class="panel eps-section">
+            <div class="panel-header-flex">
+                <span>⚡ Electrical Power Subsystem (EPS)</span>
+                <span id="val-eps-net" class="badge" style="background:#1f2833;">Net: -- mA</span>
+            </div>
+            
+            <!-- EPS Anomaly Alerts -->
+            <div id="eps-alert-box" style="display:none; margin-bottom:15px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;">
+                <!-- JavaScript will inject anomalies here -->
+            </div>
+
+            <!-- EPS Metrics Grid -->
+            <div class="metrics-row">
+                <div class="metric-box">
+                    <div class="metric-big" id="val-eps-vbat" style="color:#66fcf1">-- V</div>
+                    <div class="metric-sub">Battery Voltage</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-big" id="val-eps-iin" style="color:#f1c40f">-- mA</div>
+                    <div class="metric-sub">Solar Generation</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-big" id="val-eps-iout" style="color:#e74c3c">-- mA</div>
+                    <div class="metric-sub">Total Load Draw</div>
+                </div>
+            </div>
         </section>
 
         <!-- 📊 TELEMETRY CHART -->
@@ -45,22 +74,28 @@
                     <button class="chart-btn active" onclick="showChart(0)">📡 RSSI</button>
                     <button class="chart-btn" onclick="showChart(1)">🔋 Battery</button>
                     <button class="chart-btn" onclick="showChart(2)">🌡️ Temp</button>
+                    <!-- New Chart Buttons for EPS -->
+                    <button class="chart-btn" onclick="showChart(3)">☀️ Solar</button>
+                    <button class="chart-btn" onclick="showChart(4)">⚡ Load</button>
                 </div>
             </div>
+
+            <!-- Legacy Top Stats Row -->
             <div class="telemetry-stats-row">
                 <span>🔋 Bat: <span id="val-battery" class="cyan">--%</span></span>
                 <span>🌡️ Temp: <span id="val-temp" class="cyan">--°C</span></span>
-                <span>📡 RSSI: <span id="val-rssi" class="cyan">--dBm</span></span>
+                <span>📡 RSSI: <span id="val-rssi" class="cyan">-- dBm</span></span>
             </div>
+            
             <div id="chart-container" class="display-box chart-height"></div>
         </section>
 
-        <!-- 🛰️ PAYLOAD ANALYZER -->
+        <!-- 📸 PAYLOAD ANALYZER (No changes, preserved identically) -->
         <section class="panel payload-section">
             <div class="panel-header-flex">
-                <span>🛰️ Payload Analyzer</span>
+                <span>📸 Payload Analyzer</span>
                 <div class="payload-tabs">
-                    <button class="chart-btn active" onclick="switchPayloadTab('rgb')">📷 RGB Analysis</button>
+                    <button class="chart-btn active" onclick="switchPayloadTab('rgb')">🌍 RGB Analysis</button>
                     <button class="chart-btn" onclick="switchPayloadTab('thermal')">🌡️ Thermal Scan</button>
                     <button class="chart-btn" onclick="switchPayloadTab('change')">🔍 Change Detection</button>
                 </div>
@@ -84,8 +119,7 @@
                             <span class="legend-item"><span class="legend-dot" style="background:#e74c3c;"></span>Burn scar</span>
                             <span class="legend-item"><span class="legend-dot" style="background:#00ccff;"></span>Road / track</span>
                         </div>
-                        <button class="cmd-btn" id="analyze-btn" onclick="runRGBAnalysis()" disabled
-                            style="width:100%; margin-top:10px;">▶ Run OpenCV Analysis</button>
+                        <button class="cmd-btn" id="analyze-btn" onclick="runRGBAnalysis()" disabled style="width:100%; margin-top:10px;">▶ Run OpenCV Analysis</button>
                         <div id="analyze-loading" class="payload-loading" style="display:none;">
                             <div class="mini-spinner"></div> Analyzing with OpenCV…
                         </div>
@@ -109,7 +143,7 @@
                             <span class="bar-val" id="val-veg" style="color:var(--success-green)">--%</span>
                         </div>
                         <div class="bar-row">
-                            <span class="bar-lbl">🟤 Bare/cleared</span>
+                            <span class="bar-lbl">🟫 Bare/cleared</span>
                             <div class="bar-track"><div class="bar-fill bar-fill-amber" id="bar-bare"></div></div>
                             <span class="bar-val" id="val-bare" style="color:#f1c40f">--%</span>
                         </div>
@@ -118,6 +152,7 @@
                             <div class="bar-track"><div class="bar-fill bar-fill-red" id="bar-burn"></div></div>
                             <span class="bar-val" id="val-burn" style="color:var(--danger-red)">--%</span>
                         </div>
+                        
                         <div class="risk-row">
                             <div>
                                 <div class="sub-label">Fire risk</div>
@@ -128,10 +163,12 @@
                                 <span class="risk-badge" id="badge-defor">--</span>
                             </div>
                         </div>
+                        
                         <div id="zone-list-wrap" style="display:none; margin-top:14px;">
                             <div class="sub-label">Detected zones</div>
                             <div id="zone-list"></div>
                         </div>
+
                         <!-- Road detection results -->
                         <div id="road-list-wrap" style="display:none; margin-top:14px;">
                             <div class="sub-label">Detected road / track segments</div>
@@ -169,7 +206,7 @@
                         </div>
                         <div class="sub-label" style="margin-top:12px;">Load a recorded pass</div>
                         <div class="thermal-scenario-row">
-                            <button class="cmd-btn btn-sm" onclick="loadThermal('normal')">🌿 Normal</button>
+                            <button class="cmd-btn btn-sm" onclick="loadThermal('normal')">✅ Normal</button>
                             <button class="cmd-btn btn-sm warning" onclick="loadThermal('stress')">⚠️ Heat stress</button>
                             <button class="cmd-btn btn-sm danger" onclick="loadThermal('fire')">🔥 Fire</button>
                         </div>
@@ -208,7 +245,7 @@
             <div id="payload-change" class="payload-tab-content" style="display:none;">
                 <div class="change-selects">
                     <div class="change-col">
-                        <div class="sub-label">📅 Before image</div>
+                        <div class="sub-label">🕰️ Before image</div>
                         <select id="before-select" class="payload-select" onchange="previewChange('before')">
                             <option value="">-- select --</option>
                         </select>
@@ -218,7 +255,7 @@
                         </div>
                     </div>
                     <div class="change-col">
-                        <div class="sub-label">📅 After image</div>
+                        <div class="sub-label">📸 After image</div>
                         <select id="after-select" class="payload-select" onchange="previewChange('after')">
                             <option value="">-- select --</option>
                         </select>
@@ -229,15 +266,18 @@
                         </div>
                     </div>
                 </div>
+                
                 <div class="canvas-legend" id="change-legend" style="display:none; margin-top:6px;">
                     <span class="legend-item"><span class="legend-dot" style="background:#e74c3c;"></span>Newly cleared</span>
                     <span class="legend-item"><span class="legend-dot" style="background:#f39c12;"></span>General change</span>
                 </div>
-                <button class="cmd-btn" id="compare-btn" onclick="runChangeDetect()" disabled
-                    style="width:100%; margin-top:12px;">🔍 Detect Changes</button>
+                
+                <button class="cmd-btn" id="compare-btn" onclick="runChangeDetect()" disabled style="width:100%; margin-top:12px;">🔍 Detect Changes</button>
+                
                 <div id="compare-loading" class="payload-loading" style="display:none;">
                     <div class="mini-spinner"></div> Comparing images…
                 </div>
+                
                 <div id="change-results" style="display:none; margin-top:16px;">
                     <div class="metrics-row">
                         <div class="metric-box">
@@ -253,6 +293,7 @@
                             <div class="metric-sub">Veg. Δ%</div>
                         </div>
                     </div>
+                    
                     <div class="bar-row" style="margin-top:10px;">
                         <span class="bar-lbl">Veg before</span>
                         <div class="bar-track"><div class="bar-fill bar-green" id="bar-veg-b"></div></div>
@@ -263,6 +304,7 @@
                         <div class="bar-track"><div class="bar-fill bar-green" id="bar-veg-a"></div></div>
                         <span class="bar-val" id="val-veg-a" style="color:var(--success-green)">--%</span>
                     </div>
+                    
                     <div class="risk-row" style="margin-top:12px;">
                         <div>
                             <div class="sub-label">Deforestation detected</div>
@@ -275,7 +317,6 @@
                     </div>
                 </div>
             </div>
-
         </section>
     </main>
 

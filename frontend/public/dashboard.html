@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- CRITICAL: Socket.io needed for live data -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -17,6 +18,7 @@
         </div>
         <div class="status-panel">
             <span id="mission-clock" class="badge">EAT: --:--:--</span>
+            <span id="pass-status-badge" class="badge danger-alert" style="display:inline-block; border-color:#f1c40f; color:#f1c40f; background:rgba(241,196,15,0.1);">📡 LOS (Waiting for Pass)</span>
             <span class="badge nominal" id="system-status-badge">✅ System: NOMINAL</span>
         </div>
     </header>
@@ -30,67 +32,106 @@
     </nav>
 
     <main class="dashboard-grid">
-        
         <!-- 🌍 LIVE MAP -->
         <section class="panel map-panel">
-            <div class="panel-header">🌍 Live Orbital Path</div>
+            <div class="panel-header-flex">
+                <span>🌍 Live Orbital Path</span>
+                <!-- Mission Modes -->
+                <div style="display:flex; gap:10px;">
+                    <span id="badge-payload-state" class="badge" style="background:#1f2833; color:#c5c6c7;">📸 Payload: OFF</span>
+                    <span id="badge-fdir-mode" class="badge" style="background:#1a2a3a; color:#66fcf1; border-color:#66fcf1;">🤖 FDIR: AUTO</span>
+                </div>
+            </div>
             <div id="map-container"></div>
         </section>
 
-        <!-- ⚡ ELECTRICAL POWER SUBSYSTEM (NEW) -->
+        <!-- ⚡ ELECTRICAL POWER SUBSYSTEM -->
         <section class="panel eps-section">
             <div class="panel-header-flex">
                 <span>⚡ Electrical Power Subsystem (EPS)</span>
-                <span id="val-eps-net" class="badge" style="background:#1f2833;">Net: -- mA</span>
+                <!-- Dynamic Charging/Discharging Badge -->
+                <span id="val-eps-state" class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">⚖️ -- mA</span>
             </div>
             
-            <!-- EPS Anomaly Alerts -->
-            <div id="eps-alert-box" style="display:none; margin-bottom:15px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;">
-                <!-- JavaScript will inject anomalies here -->
-            </div>
+            <div id="eps-alert-box" style="display:none; margin-bottom:15px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;"></div>
 
-            <!-- EPS Metrics Grid -->
+            <!-- Row 1: Core Power Flow -->
             <div class="metrics-row">
                 <div class="metric-box">
-                    <div class="metric-big" id="val-eps-vbat" style="color:#66fcf1">-- V</div>
-                    <div class="metric-sub">Battery Voltage</div>
+                    <div class="metric-big dynamic-value" id="val-eps-soc" style="color:#00ff00">--%</div>
+                    <div class="metric-sub" title="Estimated via BMS Coulomb Counting">Battery SoC</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-big" id="val-eps-iin" style="color:#f1c40f">-- mA</div>
-                    <div class="metric-sub">Solar Generation</div>
+                    <div class="metric-big dynamic-value" id="val-eps-iin" style="color:#f1c40f">-- mA</div>
+                    <div class="metric-sub">Solar Gen</div>
                 </div>
                 <div class="metric-box">
-                    <div class="metric-big" id="val-eps-iout" style="color:#e74c3c">-- mA</div>
-                    <div class="metric-sub">Total Load Draw</div>
+                    <div class="metric-big dynamic-value" id="val-eps-iout" style="color:#e74c3c">-- mA</div>
+                    <div class="metric-sub">Total Draw</div>
+                </div>
+            </div>
+
+            <!-- Row 2: Bus Voltages -->
+            <div class="metrics-row" style="margin-top:10px;">
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#c5c6c7;" id="val-eps-vbat">-- V</div>
+                    <div class="metric-sub" title="Actual Battery Voltage (Sags under load)">Bat Bus (Sag)</div>
+                </div>
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-eps-3v3">-- V</div>
+                    <div class="metric-sub">3.3V Reg Bus</div>
+                </div>
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-eps-5v">-- V</div>
+                    <div class="metric-sub">5.0V Reg Bus</div>
+                </div>
+            </div>
+
+            <!-- Row 3: Current Distribution -->
+            <div class="metrics-row" style="margin-top:10px;">
+                <div class="metric-box" style="padding:8px; border: 1px solid rgba(241,196,15,0.1);">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-eps-ipayload">-- mA</div>
+                    <div class="metric-sub">Payload Draw</div>
+                </div>
+                <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-eps-icomms">-- mA</div>
+                    <div class="metric-sub">Comms Draw</div>
+                </div>
+                <div class="metric-box" style="padding:8px; border: 1px solid rgba(197,198,199,0.1);">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#c5c6c7;" id="val-eps-iobc">-- mA</div>
+                    <div class="metric-sub">OBC/Base Draw</div>
                 </div>
             </div>
         </section>
 
-        <!-- 📊 TELEMETRY CHART -->
+        <!-- 📊 DOWNLINKED TELEMETRY CHART -->
         <section class="panel">
             <div class="panel-header-flex">
-                <span>📊 Live Telemetry</span>
-                <div class="chart-selectors">
-                    <button class="chart-btn active" onclick="showChart(0)">📡 RSSI</button>
-                    <button class="chart-btn" onclick="showChart(1)">🔋 Battery</button>
-                    <button class="chart-btn" onclick="showChart(2)">🌡️ Temp</button>
-                    <!-- New Chart Buttons for EPS -->
-                    <button class="chart-btn" onclick="showChart(3)">☀️ Solar</button>
-                    <button class="chart-btn" onclick="showChart(4)">⚡ Load</button>
+                <span>📊 Downlinked Telemetry</span>
+                
+                <!-- UPGRADED: 4 Main Categories for Deep Diagnostics -->
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="chart-group" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartDropdowns()">
+                        <option value="rssi">📶 RSSI Levels</option>
+                        <option value="temp">🌡️ Temperatures</option>
+                        <option value="eps_power">⚡ Power Flow (EPS)</option>
+                        <option value="currents">🔌 Subsystem Currents</option>
+                    </select>
+                    <select id="chart-metric" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartVisibility()">
+                        <!-- Populated by JS -->
+                    </select>
                 </div>
             </div>
 
-            <!-- Legacy Top Stats Row -->
-            <div class="telemetry-stats-row">
-                <span>🔋 Bat: <span id="val-battery" class="cyan">--%</span></span>
-                <span>🌡️ Temp: <span id="val-temp" class="cyan">--°C</span></span>
-                <span>📡 RSSI: <span id="val-rssi" class="cyan">-- dBm</span></span>
+            <!-- Single Live Value Display -->
+            <div style="text-align:center; font-size:1.2rem; font-family:'Courier New', monospace; font-weight:bold; color:var(--text-silver); margin: 15px 0; min-height: 24px;" id="chart-live-value">
+                Waiting for telemetry...
             </div>
             
-            <div id="chart-container" class="display-box chart-height"></div>
+            <div id="chart-container" class="display-box chart-height" style="margin-top:10px;"></div>
         </section>
 
-        <!-- 📸 PAYLOAD ANALYZER (No changes, preserved identically) -->
+        <!-- 📸 PAYLOAD ANALYZER -->
         <section class="panel payload-section">
             <div class="panel-header-flex">
                 <span>📸 Payload Analyzer</span>
@@ -235,7 +276,7 @@
                         <div class="sub-label" style="margin-top:14px;">Hotspot coordinates</div>
                         <div id="t-hotspot-list" style="font-size:0.75rem;"></div>
                         <div style="margin-top:14px; padding:10px; background:rgba(255,200,87,0.07); border-radius:6px; border-left:3px solid #f1c40f; font-size:0.75rem; color:#8a9ba8; line-height:1.7;">
-                            ⚠️ <strong style="color:#f1c40f;">Mission note:</strong> The AMG8833 captures one snapshot per orbital pass — not a live feed. Cross-reference hotspots with the ground sensor network before escalating.
+                            ⚠️ <strong style="color:#f1c40f;">Mission note:</strong> The AMG8833 captures one snapshot per orbital pass. Cross-reference hotspots with the ground sensor network.
                         </div>
                     </div>
                 </div>

@@ -1,106 +1,182 @@
 // ==============================================================================
-// SATELLITE TELEMETRY & EPS SIMULATOR (ESP32)
-// This firmware simulates realistic Electrical Power Subsystem (EPS) behavior,
-// including solar generation, battery charging/discharging, and payload loads.
+// FORESTGUARD ALPHA - LEO SATELLITE SIMULATOR (ESP32)
+// Features: Detailed EPS Current Distribution, FDIR, Orbital Pass Simulation
 // ==============================================================================
 
-unsigned long lastTransmission = 0;
+unsigned long lastLoopTime = 0;
+unsigned long satelliteUnixTime = 1713170000; 
 
-// --- Simulated System Variables ---
-int rssi = -75;
-float sysTemp = 22.0;
+// --- Orbital Pass Simulation ---
+bool inPass = false;
+unsigned long passTimer = 0;
+const unsigned long PASS_DURATION = 40000; // 40 seconds over Ground Station
+const unsigned long LOS_DURATION = 20000;  // 20 seconds out of range
 
-// --- Simulated EPS (Electrical Power Subsystem) Variables ---
-float eps_soc = 85.0;       // State of Charge (%)
-float eps_v_bat = 8.0;      // Battery Voltage (V) - assuming 2S LiPo (6.0V - 8.4V)
-float eps_temp = 24.0;      // Battery Temperature (°C)
-int eps_i_in = 0;           // Solar generation current (mA)
-int eps_i_out = 0;          // Total satellite draw current (mA)
-int eps_i_payload = 150;    // Payload-specific draw (mA)
+// --- Subsystem Variables ---
+float obc_temp = 30.0;      
+float payload_temp = 25.0;  
+int rssi_uplink = -85;      
+int rssi_gsn = -90;         
+
+// --- EPS (Electrical Power Subsystem) ---
+float eps_soc = 85.0;       
+float eps_v_bat = 8.0;      
+float eps_v_3v3 = 3.3;      
+float eps_v_5v = 5.02;      
+float eps_temp = 24.0;      
+
+// Current Distribution Variables (NEW)
+int eps_i_in = 0;           // Solar generation
+int eps_i_out = 0;          // Total draw
+int eps_i_payload = 0;      // Payload specific draw
+int eps_i_comms = 0;        // Transceiver specific draw
+int eps_i_obc = 150;        // Base satellite operations (Constant)
+
+// --- Mission Modes & FDIR ---
+// 0 = OFF, 1 = IMAGING (High Power), 2 = DOWNLINKING (Med Power)
+int payload_state = 0; 
+bool fdir_override = false; 
 
 void setup() {
-    // Start the Serial communication matching our Python backend
     Serial.begin(115200);
     randomSeed(analogRead(0));
+    passTimer = millis(); 
 }
 
 void loop() {
-    // Transmit data every 2000 milliseconds (2 seconds)
-    if (millis() - lastTransmission > 2000) {
-        lastTransmission = millis();
+    if (millis() - lastLoopTime >= 1000) {
+        lastLoopTime = millis();
+        satelliteUnixTime++; 
 
-        // ---------------------------------------------------------
-        // 1. UPDATE SIMULATED EPS MATH (Realistic charging/discharging)
-        // ---------------------------------------------------------
-        
-        // Simulate satellite passing in and out of sunlight (0mA to 1200mA)
-        eps_i_in = random(0, 100) > 30 ? random(800, 1200) : 0; 
-        
-        // Simulate normal payload draw with an occasional "anomaly spike" (Single Event Latch-up)
-        bool payload_latchup = random(0, 100) < 5; // 5% chance of current spike
-        eps_i_payload = payload_latchup ? random(600, 800) : random(100, 180);
-        
-        // Total draw = payload + base satellite operations (comms, mcu, etc.)
-        eps_i_out = eps_i_payload + random(200, 300); 
-
-        // Calculate net power flow (convert mA to A for SoC calculation)
-        float net_current_amps = (eps_i_in - eps_i_out) / 1000.0;
-        
-        // Integrate current over time to affect battery percentage
-        eps_soc += (net_current_amps * 0.5); // Multiplier speeds up the simulation visually
-        if (eps_soc > 100.0) eps_soc = 100.0;
-        if (eps_soc < 0.0) eps_soc = 0.0;
-
-        // Simulate Voltage based on SoC (Linear estimation for 2S LiPo: 6.0V dead, 8.4V full)
-        eps_v_bat = 6.0 + ((eps_soc / 100.0) * 2.4);
-
-        // Simulate battery temp rising during heavy discharge or charge
-        eps_temp = 20.0 + (abs(net_current_amps) * 5.0) + random(-1, 2);
-
-        // Simulate Basic System metrics
-        rssi = random(-95, -65);
-        sysTemp = random(150, 250) / 10.0;
-
-        // ---------------------------------------------------------
-        // 2. THERMAL SENSOR SIMULATION (Existing logic)
-        // ---------------------------------------------------------
-        bool fireDetected = random(0, 100) < 15; // 15% chance of a fire spike
-        int firePixel = random(0, 64); 
-
-        // ---------------------------------------------------------
-        // 3. PACKAGE & SEND NESTED JSON
-        // ---------------------------------------------------------
-        Serial.print("{");
-        Serial.print("\"type\":\"TELEMETRY\",");
-        
-        // Basic System Data
-        Serial.print("\"rssi\":"); Serial.print(rssi); Serial.print(",");
-        Serial.print("\"sysTemp\":"); Serial.print(sysTemp); Serial.print(",");
-        
-        // EPS Subsystem Data (Nested Object)
-        Serial.print("\"eps\":{");
-        Serial.print("\"soc\":"); Serial.print(eps_soc); Serial.print(",");
-        Serial.print("\"v_bat\":"); Serial.print(eps_v_bat); Serial.print(",");
-        Serial.print("\"i_in\":"); Serial.print(eps_i_in); Serial.print(",");
-        Serial.print("\"i_out\":"); Serial.print(eps_i_out); Serial.print(",");
-        Serial.print("\"i_payload\":"); Serial.print(eps_i_payload); Serial.print(",");
-        Serial.print("\"temp\":"); Serial.print(eps_temp);
-        Serial.print("},");
-        
-        // Legacy variable for backwards compatibility if needed
-        Serial.print("\"battery\":"); Serial.print(eps_soc); Serial.print(",");
-
-        // Thermal Data Array
-        Serial.print("\"thermal\":[");
-        for (int i = 0; i < 64; i++) {
-            float pixelTemp = random(200, 260) / 10.0; 
-            if (fireDetected && i == firePixel) {
-                pixelTemp = random(700, 900) / 10.0; 
-            }
-            Serial.print(pixelTemp);
-            if (i < 63) Serial.print(",");
+        // 1. ORBIT DYNAMICS (AOS/LOS)
+        if (inPass && (millis() - passTimer > PASS_DURATION)) {
+            inPass = false; 
+            passTimer = millis();
+        } else if (!inPass && (millis() - passTimer > LOS_DURATION)) {
+            inPass = true;  
+            passTimer = millis();
+            // Automatically start downlinking SD card data when in pass
+            payload_state = 2; 
         }
-        Serial.print("]");
-        Serial.println("}"); 
+
+        // 2. MISSION SCHEDULING (Random ROI Imaging out of pass)
+        if (!inPass && random(0, 100) < 5 && payload_state == 0) {
+            payload_state = 1; 
+        } else if (payload_state == 1 && random(0, 100) < 20) {
+            payload_state = 0; 
+        }
+
+        // 3. ON-BOARD AUTONOMY (FDIR)
+        if (!fdir_override) {
+            if (payload_temp > 55.0 || eps_soc < 20.0) {
+                payload_state = 0; 
+            }
+        } else {
+            if (eps_v_bat <= 6.0) {
+                payload_state = 0; 
+            }
+        }
+
+        // 4. DETAILED POWER DYNAMICS & BMS SIMULATION
+        
+        // A. Solar Generation
+        eps_i_in = random(0, 100) > 20 ? random(800, 1200) : 0; 
+        
+        // B. Payload Current Draw
+        if (payload_state == 1) {
+            eps_i_payload = random(600, 800); // Heavy AI processing
+        } else if (payload_state == 2) {
+            eps_i_payload = random(100, 150); // Reading SD Card
+        } else {
+            eps_i_payload = 0; // Payload OFF
+        }
+        
+        // C. Comms (Transceiver) Current Draw
+        // Draws heavy current only when transmitting during a pass!
+        if (inPass) {
+            eps_i_comms = random(250, 350); // Transmitting to Ground Station
+        } else {
+            eps_i_comms = random(40, 60);   // Idle listening / pinging GSN
+        }
+        
+        // D. Calculate Total System Draw
+        eps_i_obc = random(140, 160); // Base MCU draw fluctuates slightly
+        eps_i_out = eps_i_payload + eps_i_comms + eps_i_obc; 
+        
+        // E. State of Charge Math
+        float net_amps = (eps_i_in - eps_i_out) / 1000.0;
+        eps_soc += (net_amps * 0.1); 
+        eps_soc = constrain(eps_soc, 0.0, 100.0);
+        
+        // F. Voltage Sag Simulation
+        float ideal_voltage = 6.0 + ((eps_soc / 100.0) * 2.4);
+        float voltage_sag = (eps_i_out / 1000.0) * 0.15; 
+        eps_v_bat = ideal_voltage - voltage_sag;
+
+        // G. Bus Regulators
+        eps_v_3v3 = 3.3 + (random(-2, 2) / 100.0);
+        if (payload_state > 0) {
+            eps_v_5v = 4.95 + (random(-5, 5) / 100.0);
+        } else {
+            eps_v_5v = 5.02;
+        }
+
+        // 5. THERMAL DYNAMICS
+        obc_temp = 30.0 + (eps_i_out / 200.0) + random(-1, 2); 
+        eps_temp = 20.0 + (abs(net_amps) * 5.0);
+        
+        if (payload_state == 1) {
+            payload_temp += 1.5; 
+        } else {
+            payload_temp -= 2.0; 
+        }
+        float ambient_temp = 5.0 + random(-2, 2);
+        payload_temp = constrain(payload_temp, ambient_temp, 80.0);
+
+        // 6. TRANSMIT DOWNLINK (ONLY DURING PASS)
+        if (inPass) {
+            Serial.print("{");
+            Serial.print("\"type\":\"TELEMETRY\",");
+            Serial.print("\"timestamp\":"); Serial.print(satelliteUnixTime); Serial.print(",");
+            
+            Serial.print("\"fdir_mode\":\""); Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print("\",");
+            Serial.print("\"payload_state\":"); Serial.print(payload_state); Serial.print(",");
+            
+            Serial.print("\"obc_temp\":"); Serial.print(obc_temp); Serial.print(",");
+            Serial.print("\"payload_temp\":"); Serial.print(payload_temp); Serial.print(",");
+            Serial.print("\"rssi_uplink\":"); Serial.print(rssi_uplink); Serial.print(",");
+            Serial.print("\"rssi_gsn\":"); Serial.print(random(-95, -70)); Serial.print(","); 
+            
+            // Nested EPS JSON with Detailed Current
+            Serial.print("\"eps\":{");
+            Serial.print("\"soc\":"); Serial.print(eps_soc); Serial.print(",");
+            Serial.print("\"v_bat\":"); Serial.print(eps_v_bat); Serial.print(",");
+            Serial.print("\"v_3v3\":"); Serial.print(eps_v_3v3); Serial.print(",");
+            Serial.print("\"v_5v\":"); Serial.print(eps_v_5v); Serial.print(",");
+            Serial.print("\"i_in\":"); Serial.print(eps_i_in); Serial.print(",");
+            Serial.print("\"i_out\":"); Serial.print(eps_i_out); Serial.print(",");
+            Serial.print("\"i_payload\":"); Serial.print(eps_i_payload); Serial.print(",");
+            Serial.print("\"i_comms\":"); Serial.print(eps_i_comms); Serial.print(",");
+            Serial.print("\"temp\":"); Serial.print(eps_temp);
+            Serial.print("},");
+            
+            // THERMAL SCANNER ARRAY
+            bool fireDetected = random(0, 100) < 15; 
+            int firePixel = random(0, 64); 
+            
+            Serial.print("\"thermal\":[");
+            for (int i = 0; i < 64; i++) {
+                float pixelTemp = random(200, 260) / 10.0; 
+                if (fireDetected && i == firePixel) {
+                    pixelTemp = random(700, 900) / 10.0; 
+                }
+                Serial.print(pixelTemp);
+                if (i < 63) {
+                    Serial.print(",");
+                }
+            }
+            Serial.print("]");
+            Serial.println("}"); 
+        }
     }
 }

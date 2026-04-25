@@ -4,6 +4,8 @@ import os
 import cv2
 import numpy as np
 import random
+import sqlite3
+import time
 from flask import Flask, send_from_directory, request, jsonify
 from flask_socketio import SocketIO
 from skyfield.api import load, EarthSatellite
@@ -19,9 +21,51 @@ satellite = EarthSatellite(line1, line2, 'ForestGuard-Alpha', load.timescale())
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "../frontend/public"))
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
+DB_FILE = os.path.join(BASE_DIR, "telemetry.db")
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# ────────────────────────────────────────────────────────────
+# DATABASE INITIALIZATION
+# ────────────────────────────────────────────────────────────
+def init_db():
+    """Creates the SQLite database and telemetry table if it doesn't exist."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS telemetry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gs_timestamp INTEGER,
+            sat_timestamp INTEGER,
+            rssi_gs INTEGER,
+            rssi_uplink INTEGER,
+            rssi_gsn INTEGER,
+            obc_temp REAL,
+            payload_temp REAL,
+            eps_soc REAL,
+            eps_v_bat REAL,
+            eps_v_3v3 REAL,
+            eps_v_5v REAL,
+            eps_i_in INTEGER,
+            eps_i_out INTEGER,
+            eps_i_payload INTEGER,
+            eps_i_comms INTEGER,
+            eps_temp REAL,
+            att_pitch REAL,
+            att_roll REAL,
+            att_yaw REAL,
+            env_pressure REAL,
+            env_humidity REAL,
+            gps_alt REAL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print("🗄️ Database initialized successfully.")
+
+# Run this immediately on startup
+init_db()
 
 # ────────────────────────────────────────────────────────────
 # OPENCV — HELPERS
@@ -342,6 +386,38 @@ def compare_images():
     
     return jsonify(result)
 
+# NEW: API Route to fetch historical data from SQLite
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    start_ts = request.args.get('start', type=int)
+    end_ts = request.args.get('end', type=int)
+    
+    if not start_ts or not end_ts:
+        return jsonify({"error": "Please provide start and end timestamps"}), 400
+        
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        
+        # Limit to 1000 records to prevent browser crash
+        c.execute('''
+            SELECT * FROM telemetry 
+            WHERE gs_timestamp >= ? AND gs_timestamp <= ? 
+            ORDER BY gs_timestamp ASC 
+            LIMIT 1000
+        ''', (start_ts, end_ts))
+        
+        rows = c.fetchall()
+        conn.close()
+        
+        # Convert SQLite Rows to standard dicts
+        history_data =[dict(row) for row in rows]
+        return jsonify(history_data)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 def get_satellite_pos():
     ts = load.timescale()
     geo = satellite.at(ts.now())
@@ -349,7 +425,7 @@ def get_satellite_pos():
     return sub.latitude.degrees, sub.longitude.degrees
 
 # ────────────────────────────────────────────────────────────
-# SERIAL THREAD (Ground Station Comms)
+# SERIAL THREAD & DATABASE INJECTION
 # ────────────────────────────────────────────────────────────
 def read_serial_data():
     try:
@@ -364,13 +440,64 @@ def read_serial_data():
                     try:
                         data = json.loads(line)
                         
-                        # Inject Ground Station Local Truths
+                        # Generate GS Timestamp
+                        gs_time = int(time.time())
+                        
+                        # Inject Map Data & GS RSSI
                         lat, lng = get_satellite_pos()
                         data["lat"] = lat
                         data["lng"] = lng
                         data["rssi_gs"] = random.randint(-85, -60)
                         
+                        # ── SAVE TO SQLITE DATABASE ──
+                        try:
+                            conn = sqlite3.connect(DB_FILE)
+                            c = conn.cursor()
+                            
+                            eps = data.get('eps', {})
+                            att = data.get('attitude', {})
+                            env = data.get('env', {})
+                            gps = data.get('gps', {})
+                            
+                            c.execute('''
+                                INSERT INTO telemetry (
+                                    gs_timestamp, sat_timestamp, rssi_gs, rssi_uplink, rssi_gsn,
+                                    obc_temp, payload_temp, eps_soc, eps_v_bat, eps_v_3v3, eps_v_5v,
+                                    eps_i_in, eps_i_out, eps_i_payload, eps_i_comms, eps_temp,
+                                    att_pitch, att_roll, att_yaw, env_pressure, env_humidity, gps_alt
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''', (
+                                gs_time,
+                                data.get('timestamp', 0),
+                                data.get('rssi_gs', 0),
+                                data.get('rssi_uplink', 0),
+                                data.get('rssi_gsn', 0),
+                                data.get('obc_temp', 0.0),
+                                data.get('payload_temp', 0.0),
+                                eps.get('soc', 0.0),
+                                eps.get('v_bat', 0.0),
+                                eps.get('v_3v3', 0.0),
+                                eps.get('v_5v', 0.0),
+                                eps.get('i_in', 0),
+                                eps.get('i_out', 0),
+                                eps.get('i_payload', 0),
+                                eps.get('i_comms', 0),
+                                eps.get('temp', 0.0),
+                                att.get('pitch', 0.0),
+                                att.get('roll', 0.0),
+                                att.get('yaw', 0.0),
+                                env.get('pressure', 0.0),
+                                env.get('humidity', 0.0),
+                                gps.get('alt', 0.0)
+                            ))
+                            conn.commit()
+                            conn.close()
+                        except Exception as db_err:
+                            print(f"Database Insert Error: {db_err}")
+
+                        # Push to UI
                         socketio.emit('telemetry_update', data)
+                        
                     except json.JSONDecodeError: 
                         pass
             

@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- CRITICAL: Socket.io needed for live data -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -49,13 +48,11 @@
         <section class="panel eps-section">
             <div class="panel-header-flex">
                 <span>⚡ Electrical Power Subsystem (EPS)</span>
-                <!-- Dynamic Charging/Discharging Badge -->
                 <span id="val-eps-state" class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">⚖️ -- mA</span>
             </div>
             
             <div id="eps-alert-box" style="display:none; margin-bottom:15px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;"></div>
 
-            <!-- Row 1: Core Power Flow -->
             <div class="metrics-row">
                 <div class="metric-box">
                     <div class="metric-big dynamic-value" id="val-eps-soc" style="color:#00ff00">--%</div>
@@ -71,7 +68,6 @@
                 </div>
             </div>
 
-            <!-- Row 2: Bus Voltages -->
             <div class="metrics-row" style="margin-top:10px;">
                 <div class="metric-box" style="padding:8px;">
                     <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#c5c6c7;" id="val-eps-vbat">-- V</div>
@@ -87,7 +83,6 @@
                 </div>
             </div>
 
-            <!-- Row 3: Current Distribution -->
             <div class="metrics-row" style="margin-top:10px;">
                 <div class="metric-box" style="padding:8px; border: 1px solid rgba(241,196,15,0.1);">
                     <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-eps-ipayload">-- mA</div>
@@ -104,18 +99,73 @@
             </div>
         </section>
 
-        <!-- 📊 DOWNLINKED TELEMETRY CHART -->
-        <section class="panel">
+        <!-- 🧭 NEW: FLIGHT DYNAMICS & ENVIRONMENT -->
+        <section class="panel dynamics-section">
             <div class="panel-header-flex">
-                <span>📊 Downlinked Telemetry</span>
+                <span>🧭 Flight Dynamics & Environment</span>
+                <span class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">🛰️ GPS Lock: 3D</span>
+            </div>
+            
+            <!-- Row 1: Attitude (IMU) -->
+            <div class="metrics-row">
+                <div class="metric-box">
+                    <div class="metric-big dynamic-value" id="val-att-pitch" style="color:#66fcf1">--°</div>
+                    <div class="metric-sub">Pitch</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-big dynamic-value" id="val-att-roll" style="color:#66fcf1">--°</div>
+                    <div class="metric-sub">Roll</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-big dynamic-value" id="val-att-yaw" style="color:#66fcf1">--°</div>
+                    <div class="metric-sub">Yaw</div>
+                </div>
+            </div>
+
+            <!-- Row 2: Internal Env & Hardware GPS -->
+            <div class="metrics-row" style="margin-top:10px;">
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-press">-- hPa</div>
+                    <div class="metric-sub">Int. Pressure</div>
+                </div>
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-hum">-- %</div>
+                    <div class="metric-sub">Int. Humidity</div>
+                </div>
+                <div class="metric-box" style="padding:8px;">
+                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#00ff00;" id="val-gps-alt">-- km</div>
+                    <div class="metric-sub">GPS Altitude</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 📊 DOWNLINKED TELEMETRY CHART (NOW WITH HISTORY) -->
+        <section class="panel" style="grid-column: 1 / -1;">
+            <div class="panel-header-flex" style="flex-wrap: wrap; gap: 15px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span>📊 Downlinked Telemetry</span>
+                    <span id="chart-mode-badge" class="badge" style="background:rgba(0,255,0,0.1); color:var(--success-green); border-color:var(--success-green);">LIVE MODE</span>
+                </div>
                 
-                <!-- UPGRADED: 4 Main Categories for Deep Diagnostics -->
-                <div style="display:flex; gap:8px; align-items:center;">
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <!-- Data Range Selectors -->
+                    <input type="datetime-local" id="hist-start" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;">
+                    <span style="color:var(--text-silver); font-size:0.8rem;">to</span>
+                    <input type="datetime-local" id="hist-end" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;">
+                    
+                    <button class="cmd-btn" onclick="fetchHistoricalData()" style="padding:4px 8px; font-size:0.75rem;">Plot History</button>
+                    <button class="cmd-btn warning" onclick="resumeLiveTelemetry()" style="padding:4px 8px; font-size:0.75rem;">Resume Live</button>
+                    
+                    <span style="color:var(--text-silver); margin: 0 10px;">|</span>
+                    
+                    <!-- Graph Type Selectors -->
                     <select id="chart-group" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartDropdowns()">
                         <option value="rssi">📶 RSSI Levels</option>
                         <option value="temp">🌡️ Temperatures</option>
                         <option value="eps_power">⚡ Power Flow (EPS)</option>
                         <option value="currents">🔌 Subsystem Currents</option>
+                        <option value="attitude">🧭 Flight Dynamics (Attitude)</option>
+                        <option value="env">🌍 Environment & GPS</option>
                     </select>
                     <select id="chart-metric" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartVisibility()">
                         <!-- Populated by JS -->

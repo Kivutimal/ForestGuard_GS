@@ -48,17 +48,15 @@ if (mapElement) {
 // ─────────────────────────────────────────────────────
 // 2. TELEMETRY CHART & DROPDOWN LOGIC
 // ─────────────────────────────────────────────────────
-
-// UPGRADED: 19 Distinct Datasets managed by 5 Master Categories
 const chartMappings = {
     rssi: {
-        "All RSSI Networks": { indices: [0, 1, 2], unit: "dBm" },
+        "All RSSI Networks": { indices:[0, 1, 2], unit: "dBm" },
         "GS RSSI Only": { indices: [0], unit: "dBm" },
         "Uplink RSSI Only": { indices: [1], unit: "dBm" },
-        "GSN RSSI Only": { indices: [2], unit: "dBm" }
+        "GSN RSSI Only": { indices:[2], unit: "dBm" }
     },
     temp: {
-        "All Temperatures": { indices: [3, 4, 5], unit: "°C" },
+        "All Temperatures": { indices:[3, 4, 5], unit: "°C" },
         "OBC Temp": { indices: [3], unit: "°C" },
         "Payload Temp": { indices:[4], unit: "°C" },
         "Battery Temp": { indices: [5], unit: "°C" }
@@ -84,7 +82,7 @@ const chartMappings = {
     env: {
         "Internal Pressure": { indices: [16], unit: "hPa" },
         "Internal Humidity": { indices: [17], unit: "%" },
-        "GPS Altitude": { indices: [18], unit: "km" }
+        "GPS Altitude": { indices:[18], unit: "km" }
     }
 };
 
@@ -95,6 +93,9 @@ let latestTelemetryCache = {
     15: "--", 16: "--", 17: "--", 18: "--"
 };
 
+let isLiveMode = true;
+let lastKnownSatTime = Date.now(); // NEW: The crucial variable that synchronizes UI to the Satellite!
+
 const chartElement = document.getElementById('chart-container');
 if (chartElement) {
     const ctx = document.createElement('canvas');
@@ -103,38 +104,27 @@ if (chartElement) {
     window.signalChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: [],
+            labels:[],
             datasets:[
-                // 0-2: RSSI
-                { label: 'GS RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false },
-                { label: 'Up RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false },
-                { label: 'GSN RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false },
-                
-                // 3-5: Temperatures
-                { label: 'OBC Temp', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Payload Temp', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Bat Temp', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                
-                // 6-9: EPS Power
-                { label: 'Battery SoC', data:[], borderColor: '#00ff00', backgroundColor: 'rgba(0,255,0,0.1)', fill: true, tension: 0.4, hidden: true },
-                { label: 'Solar Gen', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Total Draw', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Bat Voltage', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                
-                // 10-12: Subsystem Currents
-                { label: 'Payload Draw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Comms Draw', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'OBC Draw', data:[], borderColor: '#c5c6c7', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                
-                // 13-15: Attitude
-                { label: 'Pitch', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Roll', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Yaw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                
-                // 16-18: Environment & GPS
-                { label: 'Pressure', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Humidity', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true },
-                { label: 'Altitude', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true }
+                { label: 'GS RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'Up RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'GSN RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'OBC Temp', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Payload Temp', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Bat Temp', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Battery SoC', data:[], borderColor: '#00ff00', backgroundColor: 'rgba(0,255,0,0.1)', fill: true, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Solar Gen', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Total Draw', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Bat Voltage', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Payload Draw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Comms Draw', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'OBC Draw', data:[], borderColor: '#c5c6c7', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Pitch', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Roll', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Yaw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Pressure', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Humidity', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Altitude', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 }
             ]
         },
         options: { 
@@ -174,7 +164,10 @@ window.updateChartVisibility = function() {
     });
     
     window.signalChart.update();
-    updateLiveTextValueDisplay(group, metricName);
+    
+    if (isLiveMode) {
+        updateLiveTextValueDisplay(group, metricName);
+    }
 };
 
 function updateLiveTextValueDisplay(group, metricName) {
@@ -205,7 +198,148 @@ function updateLiveTextValueDisplay(group, metricName) {
 }
 
 // ─────────────────────────────────────────────────────
-// 3. WEBSOCKET & FDIR TRACKING
+// 3. DATABASE: HISTORICAL DATA FETCHING
+// ─────────────────────────────────────────────────────
+
+function formatDateTimeLocal(d) {
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// Automatically sync the UI calendar inputs to the SATELLITE's timeline.
+function updateUIHistoricalInputs(satTimeMillis) {
+    const startEl = document.getElementById('hist-start');
+    const endEl = document.getElementById('hist-end');
+    if(startEl && endEl) {
+        const end = new Date(satTimeMillis);
+        const start = new Date(satTimeMillis - 10 * 60000); // Default to last 10 mins
+        startEl.value = formatDateTimeLocal(start);
+        endEl.value = formatDateTimeLocal(end);
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    if(document.getElementById('chart-group')) window.updateChartDropdowns();
+    if(document.getElementById('thermal-grid')) loadThermal('normal');
+    
+    // Fetch the latest satellite time from the DB so our calendar isn't wrong on load
+    fetch('/api/latest_time')
+        .then(r => r.json())
+        .then(data => {
+            if (data.latest_time) {
+                lastKnownSatTime = data.latest_time * 1000;
+            }
+            updateUIHistoricalInputs(lastKnownSatTime);
+        })
+        .catch(e => {
+            console.log("Using local time as fallback.");
+            updateUIHistoricalInputs(lastKnownSatTime);
+        });
+});
+
+window.fetchRecent = function(minutes) {
+    // Calculate range completely based on the SATELLITE'S last known time!
+    const end = new Date(lastKnownSatTime);
+    const start = new Date(lastKnownSatTime - minutes * 60000);
+    
+    document.getElementById('hist-end').value = formatDateTimeLocal(end);
+    document.getElementById('hist-start').value = formatDateTimeLocal(start);
+    
+    window.fetchHistoricalData();
+};
+
+window.fetchHistoricalData = async function() {
+    const startInput = document.getElementById('hist-start').value;
+    const endInput = document.getElementById('hist-end').value;
+    const displayEl = document.getElementById('chart-live-value');
+    const modeBadge = document.getElementById('chart-mode-badge');
+    
+    if (!startInput || !endInput) {
+        alert("Please select both Start and End times.");
+        return;
+    }
+    
+    const startUnix = Math.floor(new Date(startInput).getTime() / 1000);
+    const endUnix = Math.floor(new Date(endInput).getTime() / 1000);
+    
+    displayEl.innerHTML = "Fetching database records...";
+    
+    try {
+        const res = await fetch(`/api/history?start=${startUnix}&end=${endUnix}`);
+        const rows = await res.json();
+        
+        if (rows.error) throw new Error(rows.error);
+        if (rows.length === 0) {
+            displayEl.innerHTML = "No historical records found for this range.";
+            return;
+        }
+
+        isLiveMode = false;
+        modeBadge.innerText = "HISTORICAL MODE";
+        modeBadge.style.background = "rgba(241,196,15,0.1)";
+        modeBadge.style.color = "#f1c40f";
+        modeBadge.style.borderColor = "#f1c40f";
+        
+        window.signalChart.data.labels =[];
+        window.signalChart.data.datasets.forEach(ds => ds.data =[]);
+        
+        rows.forEach(r => {
+            // Plot using the Satellite's onboard timestamp!
+            const rowTime = new Date(r.sat_timestamp * 1000).toLocaleTimeString('en-GB');
+            window.signalChart.data.labels.push(rowTime);
+            
+            window.signalChart.data.datasets[0].data.push(r.rssi_gs);
+            window.signalChart.data.datasets[1].data.push(r.rssi_uplink);
+            window.signalChart.data.datasets[2].data.push(r.rssi_gsn);
+            window.signalChart.data.datasets[3].data.push(r.obc_temp);
+            window.signalChart.data.datasets[4].data.push(r.payload_temp);
+            window.signalChart.data.datasets[5].data.push(r.eps_temp);
+            window.signalChart.data.datasets[6].data.push(r.eps_soc);
+            window.signalChart.data.datasets[7].data.push(r.eps_i_in);
+            window.signalChart.data.datasets[8].data.push(r.eps_i_out);
+            window.signalChart.data.datasets[9].data.push(r.eps_v_bat);
+            window.signalChart.data.datasets[10].data.push(r.eps_i_payload);
+            window.signalChart.data.datasets[11].data.push(r.eps_i_comms);
+            
+            const obc_draw = Math.max(0, r.eps_i_out - r.eps_i_payload - r.eps_i_comms);
+            window.signalChart.data.datasets[12].data.push(obc_draw);
+            
+            window.signalChart.data.datasets[13].data.push(r.att_pitch);
+            window.signalChart.data.datasets[14].data.push(r.att_roll);
+            window.signalChart.data.datasets[15].data.push(r.att_yaw);
+            window.signalChart.data.datasets[16].data.push(r.env_pressure);
+            window.signalChart.data.datasets[17].data.push(r.env_humidity);
+            window.signalChart.data.datasets[18].data.push(r.gps_alt);
+        });
+        
+        window.signalChart.update();
+        displayEl.innerHTML = `Loaded ${rows.length} historical records.`;
+        
+    } catch (e) {
+        alert("Database Error: " + e.message);
+    }
+};
+
+window.resumeLiveTelemetry = function() {
+    isLiveMode = true;
+    const modeBadge = document.getElementById('chart-mode-badge');
+    
+    modeBadge.innerText = "LIVE MODE";
+    modeBadge.style.background = "rgba(0,255,0,0.1)";
+    modeBadge.style.color = "var(--success-green)";
+    modeBadge.style.borderColor = "var(--success-green)";
+    
+    window.signalChart.data.labels =[];
+    window.signalChart.data.datasets.forEach(ds => ds.data =[]);
+    window.signalChart.update();
+    
+    const group = document.getElementById('chart-group').value;
+    const metricName = document.getElementById('chart-metric').value;
+    updateLiveTextValueDisplay(group, metricName);
+};
+
+// ─────────────────────────────────────────────────────
+// 4. WEBSOCKET & FDIR TRACKING
 // ─────────────────────────────────────────────────────
 let passWatchdog = null; 
 
@@ -232,7 +366,6 @@ function checkEPSAnomalies(eps, obc_temp, payload_temp, fdir_mode, payload_state
     if (payload_temp > 50) alerts.push(`<strong>WARNING:</strong> Payload Temp approaching thermal limits (${payload_temp.toFixed(1)}°C).`);
     if (eps.v_3v3 < 3.0) alerts.push("<strong>CRITICAL BROWNOUT:</strong> 3.3V bus unstable. FDIR Reset imminent.");
     
-    // Check new Environmental variables for anomalies
     if (env && env.pressure < 800) alerts.push("<strong>CRITICAL:</strong> Internal pressure dropping. Hull integrity compromise possible.");
     if (env && env.humidity > 40) alerts.push("<strong>WARNING:</strong> High internal humidity. Condensation risk to electronics.");
 
@@ -252,6 +385,11 @@ function checkEPSAnomalies(eps, obc_temp, payload_temp, fdir_mode, payload_state
 
 if (socket) {
     socket.on('telemetry_update', (data) => {
+        
+        // Keep our JS completely synced to the Satellite's onboard clock!
+        if (data.timestamp) {
+            lastKnownSatTime = data.timestamp * 1000;
+        }
         
         const passBadge = document.getElementById('pass-status-badge');
         if(passBadge) {
@@ -308,12 +446,10 @@ if (socket) {
         }
         
         if (data.eps) {
-            
             let i_payload = data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
             let i_comms = data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
             let i_obc = Math.max(0, data.eps.i_out - i_payload - i_comms);
             
-            // Update 19-item Cache
             latestTelemetryCache[0] = data.rssi_gs;
             latestTelemetryCache[1] = data.rssi_uplink;
             latestTelemetryCache[2] = data.rssi_gsn;
@@ -328,7 +464,6 @@ if (socket) {
             latestTelemetryCache[11] = i_comms;
             latestTelemetryCache[12] = i_obc;
             
-            // New Attitude / Env / GPS updates in Cache
             if(data.attitude) {
                 latestTelemetryCache[13] = data.attitude.pitch.toFixed(1);
                 latestTelemetryCache[14] = data.attitude.roll.toFixed(1);
@@ -358,14 +493,12 @@ if (socket) {
                 if (altEl) altEl.innerText = latestTelemetryCache[18] + ' km';
             }
             
-            // Update EPS Boxes
             const socEl = document.getElementById('val-eps-soc');
             const iinEl = document.getElementById('val-eps-iin');
             const ioutEl = document.getElementById('val-eps-iout');
             const vbatEl = document.getElementById('val-eps-vbat');
             const v3v3El = document.getElementById('val-eps-3v3');
             const v5vEl = document.getElementById('val-eps-5v');
-            
             const plDrawEl = document.getElementById('val-eps-ipayload');
             const cmDrawEl = document.getElementById('val-eps-icomms');
             const obDrawEl = document.getElementById('val-eps-iobc');
@@ -381,7 +514,6 @@ if (socket) {
             if (cmDrawEl) cmDrawEl.innerText = i_comms + ' mA';
             if (obDrawEl) obDrawEl.innerText = i_obc + ' mA';
 
-            // Charging/Discharging Logic
             const net = data.eps.i_in - data.eps.i_out;
             const stateEl = document.getElementById('val-eps-state');
             
@@ -404,12 +536,14 @@ if (socket) {
             checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env);
             triggerEPSPulse();
             
-            const group = document.getElementById('chart-group')?.value;
-            const metricName = document.getElementById('chart-metric')?.value;
-            if(group && metricName) updateLiveTextValueDisplay(group, metricName);
+            if (isLiveMode) {
+                const group = document.getElementById('chart-group')?.value;
+                const metricName = document.getElementById('chart-metric')?.value;
+                if(group && metricName) updateLiveTextValueDisplay(group, metricName);
+            }
         }
 
-        if (window.signalChart) {
+        if (window.signalChart && isLiveMode) {
             window.signalChart.data.labels.push(satTimeString);
             
             window.signalChart.data.datasets[0].data.push(data.rssi_gs);
@@ -431,7 +565,6 @@ if (socket) {
             window.signalChart.data.datasets[11].data.push(i_c);
             window.signalChart.data.datasets[12].data.push(i_o);
             
-            // Push Attitude, Env, GPS
             window.signalChart.data.datasets[13].data.push(data.attitude ? data.attitude.pitch : 0);
             window.signalChart.data.datasets[14].data.push(data.attitude ? data.attitude.roll : 0);
             window.signalChart.data.datasets[15].data.push(data.attitude ? data.attitude.yaw : 0);
@@ -447,7 +580,7 @@ if (socket) {
         }
 
         if (data.lat && data.lng && satelliteMarker) {
-            const pos =[data.lat, data.lng];
+            const pos = [data.lat, data.lng];
             satelliteMarker.setLatLng(pos);
             orbitPath.addLatLng(pos);
             map.panTo(pos, { animate: true, duration: 1.0 });
@@ -471,7 +604,7 @@ const SAMPLE_LABELS = {
 };
 
 async function loadSamples() {
-    const ids = ['sample-select', 'before-select', 'after-select'];
+    const ids =['sample-select', 'before-select', 'after-select'];
     const sels = ids.map(id => document.getElementById(id)).filter(Boolean);
     
     if (!sels.length) return;
@@ -1086,7 +1219,7 @@ function switchPayloadTab(tab) {
     document.getElementById('payload-thermal').style.display = tab === 'thermal' ? 'block' : 'none';
     document.getElementById('payload-change').style.display = tab === 'change' ? 'block' : 'none';
     
-    const tabs =['rgb', 'thermal', 'change'];
+    const tabs = ['rgb', 'thermal', 'change'];
     document.querySelectorAll('.payload-tabs .chart-btn').forEach((btn, i) => { 
         btn.classList.toggle('active', tabs[i] === tab); 
     });
@@ -1111,18 +1244,6 @@ function setRiskBadge(id, level) {
     el.innerText = level.toUpperCase();
 }
 
-// ── Initialization ──
 if (document.getElementById('sample-select')) {
     loadSamples();
 }
-
-document.addEventListener("DOMContentLoaded", () => {
-    // Populate dropdowns properly on load
-    if(document.getElementById('chart-group')) {
-        window.updateChartDropdowns();
-    }
-    
-    if(document.getElementById('thermal-grid')) {
-        loadThermal('normal');
-    }
-});

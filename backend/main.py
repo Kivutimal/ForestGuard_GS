@@ -87,7 +87,6 @@ def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
             
         x, y, w, h = cv2.boundingRect(c)
         
-        # Confidence Score Math (Extent)
         extent = area / float(w * h) if (w * h) > 0 else 0
         area_pct = round(area / total * 100, 2)
         confidence = int(min(99, max(45, (extent * 80) + (area_pct * 1.5))))
@@ -386,7 +385,21 @@ def compare_images():
     
     return jsonify(result)
 
-# NEW: API Route to fetch historical data from SQLite
+# NEW: Fetch latest satellite timestamp to sync the UI inputs!
+@app.route('/api/latest_time', methods=['GET'])
+def get_latest_time():
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('SELECT MAX(sat_timestamp) FROM telemetry')
+        row = c.fetchone()
+        conn.close()
+        latest = row[0] if row[0] else int(time.time())
+        return jsonify({"latest_time": latest})
+    except Exception as e:
+        return jsonify({"latest_time": int(time.time())})
+
+# UPGRADED: Query using sat_timestamp, not the ground station time!
 @app.route('/api/history', methods=['GET'])
 def get_history():
     start_ts = request.args.get('start', type=int)
@@ -400,18 +413,16 @@ def get_history():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         
-        # Limit to 1000 records to prevent browser crash
         c.execute('''
             SELECT * FROM telemetry 
-            WHERE gs_timestamp >= ? AND gs_timestamp <= ? 
-            ORDER BY gs_timestamp ASC 
+            WHERE sat_timestamp >= ? AND sat_timestamp <= ? 
+            ORDER BY sat_timestamp ASC 
             LIMIT 1000
         ''', (start_ts, end_ts))
         
         rows = c.fetchall()
         conn.close()
         
-        # Convert SQLite Rows to standard dicts
         history_data =[dict(row) for row in rows]
         return jsonify(history_data)
         
@@ -440,10 +451,9 @@ def read_serial_data():
                     try:
                         data = json.loads(line)
                         
-                        # Generate GS Timestamp
                         gs_time = int(time.time())
+                        sat_time = data.get('timestamp', gs_time)
                         
-                        # Inject Map Data & GS RSSI
                         lat, lng = get_satellite_pos()
                         data["lat"] = lat
                         data["lng"] = lng
@@ -468,7 +478,7 @@ def read_serial_data():
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ''', (
                                 gs_time,
-                                data.get('timestamp', 0),
+                                sat_time,
                                 data.get('rssi_gs', 0),
                                 data.get('rssi_uplink', 0),
                                 data.get('rssi_gsn', 0),
@@ -495,7 +505,6 @@ def read_serial_data():
                         except Exception as db_err:
                             print(f"Database Insert Error: {db_err}")
 
-                        # Push to UI
                         socketio.emit('telemetry_update', data)
                         
                     except json.JSONDecodeError: 

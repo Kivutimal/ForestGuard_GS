@@ -10,11 +10,13 @@
 <body class="home-page-bg">
     <header>
         <div class="logo-area">
-            <h1>🛰️ ForestGuard GS</h1>
+            <h1>🛰️ ForestGuard_Kenya</h1>
+            <div style="font-size:0.8rem; color:#8a9ba8; letter-spacing:1px; margin-top:2px;">-- Ground Station</div>
         </div>
         <div class="status-panel">
             <span id="mission-clock" class="badge">EAT: --:--:--</span>
-            <span class="badge nominal">🟢 ONLINE</span>
+            <span id="pass-status-badge" class="badge danger-alert" style="display:inline-block; border-color:#f1c40f; color:#f1c40f; background:rgba(241,196,15,0.1);">📡 LOS (Waiting for Pass)</span>
+            <span class="badge nominal" id="system-status-badge">✅ System: NOMINAL</span>
         </div>
     </header>
 

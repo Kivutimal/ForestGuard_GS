@@ -12,8 +12,9 @@
 </head>
 <body>
     <header>
-        <div class="logo-area">
-            <h1>🛰️ ForestGuard GS</h1>
+        <div class="logo-area" style="display: flex; flex-direction: column;">
+            <h1 style="margin: 0; line-height: 1;">🛰️ ForestGuard_Kenya</h1>
+            <span style="font-size: 0.75rem; color: #8a9ba8; letter-spacing: 2px; margin-top: 4px;">-- GROUND STATION --</span>
         </div>
         <div class="status-panel">
             <span id="mission-clock" class="badge">EAT: --:--:--</span>
@@ -99,72 +100,101 @@
             </div>
         </section>
 
-        <!-- 🧭 NEW: FLIGHT DYNAMICS & ENVIRONMENT -->
-        <section class="panel dynamics-section">
-            <div class="panel-header-flex">
-                <span>🧭 Flight Dynamics & Environment</span>
-                <span class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">🛰️ GPS Lock: 3D</span>
-            </div>
-            
-            <!-- Row 1: Attitude (IMU) -->
-            <div class="metrics-row">
-                <div class="metric-box">
-                    <div class="metric-big dynamic-value" id="val-att-pitch" style="color:#66fcf1">--°</div>
-                    <div class="metric-sub">Pitch</div>
+        <!-- 🧭 FLIGHT DYNAMICS & ENVIRONMENT -->
+        <div style="display:flex; flex-direction:column; gap:20px;">
+            <section class="panel dynamics-section">
+                <div class="panel-header-flex">
+                    <span>🧭 Flight Dynamics & GPS</span>
+                    <span class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">🛰️ GPS Lock: 3D</span>
                 </div>
-                <div class="metric-box">
-                    <div class="metric-big dynamic-value" id="val-att-roll" style="color:#66fcf1">--°</div>
-                    <div class="metric-sub">Roll</div>
+                
+                <!-- Row 1: GPS Location -->
+                <div class="metrics-row">
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-gps-lat">--</div>
+                        <div class="metric-sub">Latitude</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-gps-lng">--</div>
+                        <div class="metric-sub">Longitude</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#00ff00;" id="val-gps-alt">-- km</div>
+                        <div class="metric-sub">GPS Altitude</div>
+                    </div>
                 </div>
-                <div class="metric-box">
-                    <div class="metric-big dynamic-value" id="val-att-yaw" style="color:#66fcf1">--°</div>
-                    <div class="metric-sub">Yaw</div>
-                </div>
-            </div>
 
-            <!-- Row 2: Internal Env & Hardware GPS -->
-            <div class="metrics-row" style="margin-top:10px;">
-                <div class="metric-box" style="padding:8px;">
-                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-press">-- hPa</div>
-                    <div class="metric-sub">Int. Pressure</div>
+                <!-- Row 2: Internal Environment -->
+                <div class="metrics-row" style="margin-top:10px;">
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-press">-- hPa</div>
+                        <div class="metric-sub">Int. Pressure</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-hum">-- %</div>
+                        <div class="metric-sub">Int. Humidity</div>
+                    </div>
                 </div>
-                <div class="metric-box" style="padding:8px;">
-                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-hum">-- %</div>
-                    <div class="metric-sub">Int. Humidity</div>
-                </div>
-                <div class="metric-box" style="padding:8px;">
-                    <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#00ff00;" id="val-gps-alt">-- km</div>
-                    <div class="metric-sub">GPS Altitude</div>
-                </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- 📊 DOWNLINKED TELEMETRY CHART (NOW WITH HISTORY) -->
+            <!-- 🌳 GROUND SENSOR NETWORK (GSN) -->
+            <section class="panel gsn-section">
+                <div class="panel-header-flex" style="align-items: center;">
+                    <div style="display:flex; flex-direction:column;">
+                        <span>🌳 Ground Sensor Network (GSN)</span>
+                        <span id="val-gsn-time" style="font-size: 0.7rem; color: #8a9ba8; margin-top:4px;">Recorded: --:--:--</span>
+                    </div>
+                    <span id="val-gsn-node" class="badge" style="background:#1f2833;">NODE: --</span>
+                </div>
+                
+                <div id="gsn-alert-box" style="display:none; margin-bottom:15px; margin-top:10px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;"></div>
+
+                <div class="metrics-row" style="margin-top: 10px;">
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(231,76,60,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#e74c3c;" id="val-gsn-smoke">--</div>
+                        <div class="metric-sub">Smoke Det.</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(241,196,15,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-gsn-sound">--</div>
+                        <div class="metric-sub">Sound (Chainsaw)</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-gsn-soil">--%</div>
+                        <div class="metric-sub">Soil Moisture</div>
+                    </div>
+                </div>
+                
+                <div class="metrics-row" style="margin-top:10px;">
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#c5c6c7;" id="val-gsn-temp">--°C</div>
+                        <div class="metric-sub">Ambient Temp</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#c5c6c7;" id="val-gsn-hum">--%</div>
+                        <div class="metric-sub">Ambient Hum</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px;">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#00ff00;" id="val-gsn-bat">--%</div>
+                        <div class="metric-sub" title="GSN Node Battery">Node Bat</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- 📊 DOWNLINKED TELEMETRY CHART (SLEEK, NO DB REQUIRED) -->
         <section class="panel" style="grid-column: 1 / -1;">
             <div class="panel-header-flex" style="flex-wrap: wrap; gap: 15px;">
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span>📊 Downlinked Telemetry</span>
-                    <span id="chart-mode-badge" class="badge" style="background:rgba(0,255,0,0.1); color:var(--success-green); border-color:var(--success-green);">LIVE MODE</span>
+                    <span id="chart-mode-badge" class="badge" style="background:rgba(0,255,0,0.1); color:var(--success-green); border-color:var(--success-green);">ACTIVE DOWNLINK</span>
                 </div>
                 
                 <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                    <!-- Data Range Selectors -->
-                    <input type="datetime-local" id="hist-start" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;">
-                    <span style="color:var(--text-silver); font-size:0.8rem;">to</span>
-                    <input type="datetime-local" id="hist-end" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;">
-                    
-                    <button class="cmd-btn" onclick="fetchHistoricalData()" style="padding:4px 8px; font-size:0.75rem;">Plot History</button>
-                    <button class="cmd-btn warning" onclick="resumeLiveTelemetry()" style="padding:4px 8px; font-size:0.75rem;">Resume Live</button>
-                    
-                    <span style="color:var(--text-silver); margin: 0 10px;">|</span>
-                    
-                    <!-- Graph Type Selectors -->
                     <select id="chart-group" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartDropdowns()">
                         <option value="rssi">📶 RSSI Levels</option>
                         <option value="temp">🌡️ Temperatures</option>
                         <option value="eps_power">⚡ Power Flow (EPS)</option>
                         <option value="currents">🔌 Subsystem Currents</option>
-                        <option value="attitude">🧭 Flight Dynamics (Attitude)</option>
                         <option value="env">🌍 Environment & GPS</option>
                     </select>
                     <select id="chart-metric" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartVisibility()">
@@ -295,8 +325,12 @@
                             <div class="thermal-scale-bar"></div>
                             <span>80°C</span>
                         </div>
-                        <div class="sub-label" style="margin-top:12px;">Load a recorded pass</div>
+                        
+                        <div class="sub-label" style="margin-top:12px;">Thermal Data Source</div>
                         <div class="thermal-scenario-row">
+                            <button class="cmd-btn btn-sm active" id="btn-live-thermal" onclick="loadThermal('live')" style="border-color: #66fcf1; color: #66fcf1; box-shadow: 0 0 5px rgba(102,252,241,0.3);">🔴 Live (ESP32)</button>
+                            <span style="color:var(--text-silver); margin: 0 5px; align-self: center;">|</span>
+                            
                             <button class="cmd-btn btn-sm" onclick="loadThermal('normal')">✅ Normal</button>
                             <button class="cmd-btn btn-sm warning" onclick="loadThermal('stress')">⚠️ Heat stress</button>
                             <button class="cmd-btn btn-sm danger" onclick="loadThermal('fire')">🔥 Fire</button>

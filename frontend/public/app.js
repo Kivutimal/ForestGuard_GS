@@ -1,8 +1,8 @@
 const socket = typeof io !== 'undefined' ? io('http://localhost:8000') : null;
 
-// ─────────────────────────────────────────────────────
-// 1. CLOCK & MAP
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 1. CLOCK & MAP INITIALIZATION
+// ==============================================================================
 function updateClock() {
     const el = document.getElementById('mission-clock');
     if (el) {
@@ -17,7 +17,7 @@ setInterval(updateClock, 1000);
 updateClock();
 
 const mapElement = document.getElementById('map-container');
-let satelliteMarker, orbitPath, map;
+let satelliteMarker, orbitPath, map, gsnMarker;
 
 if (mapElement) {
     map = L.map('map-container').setView([0, 0], 3);
@@ -38,51 +38,60 @@ if (mapElement) {
     }).addTo(map);
     
     satelliteMarker.bindPopup('<b>ForestGuard Alpha</b>');
+    
     orbitPath = L.polyline([], { 
         color: '#66fcf1', 
         weight: 2, 
         opacity: 0.6 
     }).addTo(map);
+    
+    // Fixed marker for Ground Sensor Network in MAU FOREST, KENYA
+    const gsnIcon = L.divIcon({
+        html: '<div id="gsn-map-icon" style="font-size:18px; filter:drop-shadow(0 0 8px #00ff00);">🌳</div>',
+        className: 'gsn-icon',
+        iconSize: [24, 24]
+    });
+    
+    // Mau Forest Coordinates
+    gsnMarker = L.marker([-0.2325, 35.5523], { icon: gsnIcon }).addTo(map);
+    gsnMarker.bindPopup('<b>Ground Sensor Network</b><br>Node: GSN-01<br>Location: Mau Forest');
 }
 
-// ─────────────────────────────────────────────────────
+
+// ==============================================================================
 // 2. TELEMETRY CHART & DROPDOWN LOGIC
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+
+// Dataset mappings (Now excluding Attitude, tracking GPS alt/env directly)
 const chartMappings = {
     rssi: {
-        "All RSSI Networks": { indices:[0, 1, 2], unit: "dBm" },
+        "All RSSI Networks": { indices: [0, 1, 2], unit: "dBm" },
         "GS RSSI Only": { indices: [0], unit: "dBm" },
         "Uplink RSSI Only": { indices: [1], unit: "dBm" },
-        "GSN RSSI Only": { indices:[2], unit: "dBm" }
+        "GSN RSSI Only": { indices: [2], unit: "dBm" }
     },
     temp: {
-        "All Temperatures": { indices:[3, 4, 5], unit: "°C" },
+        "All Temperatures": { indices: [3, 4, 5], unit: "°C" },
         "OBC Temp": { indices: [3], unit: "°C" },
-        "Payload Temp": { indices:[4], unit: "°C" },
+        "Payload Temp": { indices: [4], unit: "°C" },
         "Battery Temp": { indices: [5], unit: "°C" }
     },
     eps_power: {
-        "Power Flow (Gen vs Total Draw)": { indices:[7, 8], unit: "mA" },
+        "Power Flow (Gen vs Total Draw)": { indices: [7, 8], unit: "mA" },
         "Battery SoC (%)": { indices: [6], unit: "%" },
         "Battery Voltage (V)": { indices: [9], unit: "V" }
     },
     currents: {
-        "All Subsystem Currents": { indices:[10, 11, 12], unit: "mA" },
+        "All Subsystem Currents": { indices: [10, 11, 12], unit: "mA" },
         "Payload Draw Only": { indices: [10], unit: "mA" },
-        "Comms Draw Only": { indices:[11], unit: "mA" },
-        "OBC/Base Draw Only": { indices:[12], unit: "mA" },
-        "Total Combined Draw": { indices:[8], unit: "mA" }
-    },
-    attitude: {
-        "All Axes (Pitch/Roll/Yaw)": { indices:[13, 14, 15], unit: "°" },
-        "Pitch Only": { indices:[13], unit: "°" },
-        "Roll Only": { indices: [14], unit: "°" },
-        "Yaw Only": { indices: [15], unit: "°" }
+        "Comms Draw Only": { indices: [11], unit: "mA" },
+        "OBC/Base Draw Only": { indices: [12], unit: "mA" },
+        "Total Combined Draw": { indices: [8], unit: "mA" }
     },
     env: {
-        "Internal Pressure": { indices: [16], unit: "hPa" },
-        "Internal Humidity": { indices: [17], unit: "%" },
-        "GPS Altitude": { indices:[18], unit: "km" }
+        "Internal Pressure": { indices: [13], unit: "hPa" },
+        "Internal Humidity": { indices: [14], unit: "%" },
+        "GPS Altitude": { indices: [15], unit: "km" }
     }
 };
 
@@ -90,11 +99,8 @@ let latestTelemetryCache = {
     0: "--", 1: "--", 2: "--", 3: "--", 4: "--",
     5: "--", 6: "--", 7: "--", 8: "--", 9: "--",
     10: "--", 11: "--", 12: "--", 13: "--", 14: "--",
-    15: "--", 16: "--", 17: "--", 18: "--"
+    15: "--"
 };
-
-let isLiveMode = true;
-let lastKnownSatTime = Date.now(); // NEW: The crucial variable that synchronizes UI to the Satellite!
 
 const chartElement = document.getElementById('chart-container');
 if (chartElement) {
@@ -106,22 +112,28 @@ if (chartElement) {
         data: {
             labels:[],
             datasets:[
+                // 0-2: RSSI
                 { label: 'GS RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
                 { label: 'Up RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
                 { label: 'GSN RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                
+                // 3-5: Temperatures
                 { label: 'OBC Temp', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Payload Temp', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Bat Temp', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                
+                // 6-9: EPS Power
                 { label: 'Battery SoC', data:[], borderColor: '#00ff00', backgroundColor: 'rgba(0,255,0,0.1)', fill: true, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Solar Gen', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Total Draw', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Bat Voltage', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                
+                // 10-12: Subsystem Currents
                 { label: 'Payload Draw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Comms Draw', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'OBC Draw', data:[], borderColor: '#c5c6c7', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
-                { label: 'Pitch', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
-                { label: 'Roll', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
-                { label: 'Yaw', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                
+                // 13-15: Environment & GPS Altitude
                 { label: 'Pressure', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Humidity', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Altitude', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 }
@@ -164,10 +176,7 @@ window.updateChartVisibility = function() {
     });
     
     window.signalChart.update();
-    
-    if (isLiveMode) {
-        updateLiveTextValueDisplay(group, metricName);
-    }
+    updateLiveTextValueDisplay(group, metricName);
 };
 
 function updateLiveTextValueDisplay(group, metricName) {
@@ -197,150 +206,19 @@ function updateLiveTextValueDisplay(group, metricName) {
     }
 }
 
-// ─────────────────────────────────────────────────────
-// 3. DATABASE: HISTORICAL DATA FETCHING
-// ─────────────────────────────────────────────────────
-
-function formatDateTimeLocal(d) {
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-// Automatically sync the UI calendar inputs to the SATELLITE's timeline.
-function updateUIHistoricalInputs(satTimeMillis) {
-    const startEl = document.getElementById('hist-start');
-    const endEl = document.getElementById('hist-end');
-    if(startEl && endEl) {
-        const end = new Date(satTimeMillis);
-        const start = new Date(satTimeMillis - 10 * 60000); // Default to last 10 mins
-        startEl.value = formatDateTimeLocal(start);
-        endEl.value = formatDateTimeLocal(end);
-    }
-}
-
 document.addEventListener("DOMContentLoaded", () => {
-    if(document.getElementById('chart-group')) window.updateChartDropdowns();
-    if(document.getElementById('thermal-grid')) loadThermal('normal');
-    
-    // Fetch the latest satellite time from the DB so our calendar isn't wrong on load
-    fetch('/api/latest_time')
-        .then(r => r.json())
-        .then(data => {
-            if (data.latest_time) {
-                lastKnownSatTime = data.latest_time * 1000;
-            }
-            updateUIHistoricalInputs(lastKnownSatTime);
-        })
-        .catch(e => {
-            console.log("Using local time as fallback.");
-            updateUIHistoricalInputs(lastKnownSatTime);
-        });
+    if (document.getElementById('chart-group')) {
+        window.updateChartDropdowns();
+    }
+    if (document.getElementById('thermal-grid')) {
+        loadThermal('normal');
+    }
 });
 
-window.fetchRecent = function(minutes) {
-    // Calculate range completely based on the SATELLITE'S last known time!
-    const end = new Date(lastKnownSatTime);
-    const start = new Date(lastKnownSatTime - minutes * 60000);
-    
-    document.getElementById('hist-end').value = formatDateTimeLocal(end);
-    document.getElementById('hist-start').value = formatDateTimeLocal(start);
-    
-    window.fetchHistoricalData();
-};
 
-window.fetchHistoricalData = async function() {
-    const startInput = document.getElementById('hist-start').value;
-    const endInput = document.getElementById('hist-end').value;
-    const displayEl = document.getElementById('chart-live-value');
-    const modeBadge = document.getElementById('chart-mode-badge');
-    
-    if (!startInput || !endInput) {
-        alert("Please select both Start and End times.");
-        return;
-    }
-    
-    const startUnix = Math.floor(new Date(startInput).getTime() / 1000);
-    const endUnix = Math.floor(new Date(endInput).getTime() / 1000);
-    
-    displayEl.innerHTML = "Fetching database records...";
-    
-    try {
-        const res = await fetch(`/api/history?start=${startUnix}&end=${endUnix}`);
-        const rows = await res.json();
-        
-        if (rows.error) throw new Error(rows.error);
-        if (rows.length === 0) {
-            displayEl.innerHTML = "No historical records found for this range.";
-            return;
-        }
-
-        isLiveMode = false;
-        modeBadge.innerText = "HISTORICAL MODE";
-        modeBadge.style.background = "rgba(241,196,15,0.1)";
-        modeBadge.style.color = "#f1c40f";
-        modeBadge.style.borderColor = "#f1c40f";
-        
-        window.signalChart.data.labels =[];
-        window.signalChart.data.datasets.forEach(ds => ds.data =[]);
-        
-        rows.forEach(r => {
-            // Plot using the Satellite's onboard timestamp!
-            const rowTime = new Date(r.sat_timestamp * 1000).toLocaleTimeString('en-GB');
-            window.signalChart.data.labels.push(rowTime);
-            
-            window.signalChart.data.datasets[0].data.push(r.rssi_gs);
-            window.signalChart.data.datasets[1].data.push(r.rssi_uplink);
-            window.signalChart.data.datasets[2].data.push(r.rssi_gsn);
-            window.signalChart.data.datasets[3].data.push(r.obc_temp);
-            window.signalChart.data.datasets[4].data.push(r.payload_temp);
-            window.signalChart.data.datasets[5].data.push(r.eps_temp);
-            window.signalChart.data.datasets[6].data.push(r.eps_soc);
-            window.signalChart.data.datasets[7].data.push(r.eps_i_in);
-            window.signalChart.data.datasets[8].data.push(r.eps_i_out);
-            window.signalChart.data.datasets[9].data.push(r.eps_v_bat);
-            window.signalChart.data.datasets[10].data.push(r.eps_i_payload);
-            window.signalChart.data.datasets[11].data.push(r.eps_i_comms);
-            
-            const obc_draw = Math.max(0, r.eps_i_out - r.eps_i_payload - r.eps_i_comms);
-            window.signalChart.data.datasets[12].data.push(obc_draw);
-            
-            window.signalChart.data.datasets[13].data.push(r.att_pitch);
-            window.signalChart.data.datasets[14].data.push(r.att_roll);
-            window.signalChart.data.datasets[15].data.push(r.att_yaw);
-            window.signalChart.data.datasets[16].data.push(r.env_pressure);
-            window.signalChart.data.datasets[17].data.push(r.env_humidity);
-            window.signalChart.data.datasets[18].data.push(r.gps_alt);
-        });
-        
-        window.signalChart.update();
-        displayEl.innerHTML = `Loaded ${rows.length} historical records.`;
-        
-    } catch (e) {
-        alert("Database Error: " + e.message);
-    }
-};
-
-window.resumeLiveTelemetry = function() {
-    isLiveMode = true;
-    const modeBadge = document.getElementById('chart-mode-badge');
-    
-    modeBadge.innerText = "LIVE MODE";
-    modeBadge.style.background = "rgba(0,255,0,0.1)";
-    modeBadge.style.color = "var(--success-green)";
-    modeBadge.style.borderColor = "var(--success-green)";
-    
-    window.signalChart.data.labels =[];
-    window.signalChart.data.datasets.forEach(ds => ds.data =[]);
-    window.signalChart.update();
-    
-    const group = document.getElementById('chart-group').value;
-    const metricName = document.getElementById('chart-metric').value;
-    updateLiveTextValueDisplay(group, metricName);
-};
-
-// ─────────────────────────────────────────────────────
-// 4. WEBSOCKET & FDIR TRACKING
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 3. WEBSOCKET & FDIR TRACKING
+// ==============================================================================
 let passWatchdog = null; 
 
 function triggerEPSPulse() {
@@ -354,42 +232,85 @@ function triggerEPSPulse() {
 function checkEPSAnomalies(eps, obc_temp, payload_temp, fdir_mode, payload_state, env) {
     const alertBox = document.getElementById('eps-alert-box');
     const statusBadge = document.getElementById('system-status-badge');
-    if(!alertBox || !statusBadge) return;
+    
+    if (!alertBox || !statusBadge) return;
 
     let alerts =[];
 
     if (fdir_mode === 'AUTO' && payload_state === 0 && (payload_temp > 50 || eps.soc < 20)) {
-        alerts.push("⚠️ <strong>FDIR AUTONOMY EVENT:</strong> OBC has autonomously commanded Payload power OFF to protect the system.");
+        alerts.push("⚠️ <strong>FDIR AUTONOMY EVENT:</strong> OBC has autonomously commanded Payload power OFF.");
     }
-
-    if (eps.soc <= 20) alerts.push("<strong>CRITICAL:</strong> SoC &lt; 20%. Manual Load Shedding recommended.");
-    if (payload_temp > 50) alerts.push(`<strong>WARNING:</strong> Payload Temp approaching thermal limits (${payload_temp.toFixed(1)}°C).`);
-    if (eps.v_3v3 < 3.0) alerts.push("<strong>CRITICAL BROWNOUT:</strong> 3.3V bus unstable. FDIR Reset imminent.");
-    
-    if (env && env.pressure < 800) alerts.push("<strong>CRITICAL:</strong> Internal pressure dropping. Hull integrity compromise possible.");
-    if (env && env.humidity > 40) alerts.push("<strong>WARNING:</strong> High internal humidity. Condensation risk to electronics.");
+    if (eps.soc <= 20) {
+        alerts.push("<strong>CRITICAL:</strong> SoC &lt; 20%. Manual Load Shedding recommended.");
+    }
+    if (payload_temp > 50) {
+        alerts.push(`<strong>WARNING:</strong> Payload Temp approaching thermal limits (${payload_temp.toFixed(1)}°C).`);
+    }
+    if (eps.v_3v3 < 3.0) {
+        alerts.push("<strong>CRITICAL BROWNOUT:</strong> 3.3V bus unstable. FDIR Reset imminent.");
+    }
+    if (env && env.pressure < 800) {
+        alerts.push("<strong>CRITICAL:</strong> Internal pressure dropping. Hull integrity compromise possible.");
+    }
+    if (env && env.humidity > 40) {
+        alerts.push("<strong>WARNING:</strong> High internal humidity. Condensation risk to electronics.");
+    }
 
     if (alerts.length > 0) {
         alertBox.style.display = 'block'; 
         alertBox.innerHTML = alerts.join('<br>');
         statusBadge.className = 'badge danger-alert'; 
         statusBadge.style.display = 'inline-block'; 
-        statusBadge.innerText = '❌ System: FDIR ACTIVE';
+        statusBadge.innerText = '❌ System: ALERTS ACTIVE';
     } else {
         alertBox.style.display = 'none';
-        statusBadge.className = 'badge nominal'; 
-        statusBadge.innerText = '✅ System: NOMINAL'; 
-        statusBadge.style.display = 'inline-block';
+        if (document.getElementById('gsn-alert-box')?.style.display === 'none') {
+            statusBadge.className = 'badge nominal'; 
+            statusBadge.innerText = '✅ System: NOMINAL'; 
+            statusBadge.style.display = 'inline-block';
+        }
+    }
+}
+
+function checkGSNAnomalies(gsn) {
+    const alertBox = document.getElementById('gsn-alert-box');
+    const statusBadge = document.getElementById('system-status-badge');
+    if (!alertBox) return;
+
+    let alerts =[];
+
+    if (gsn) {
+        if (gsn.smoke === 1) {
+            alerts.push(`<strong>🔥 GSN FIRE ALERT:</strong> Node ${gsn.node_id} has detected active smoke!`);
+        }
+        if (gsn.sound === 1) {
+            alerts.push(`<strong>🪚 GSN LOGGING ALERT:</strong> Node ${gsn.node_id} has detected chainsaw/vehicle acoustics!`);
+        }
+        if (gsn.soc < 15) {
+            alerts.push(`<strong>⚠️ GSN MAINTENANCE:</strong> Node ${gsn.node_id} battery is critically low (${gsn.soc}%).`);
+        }
+    }
+
+    if (alerts.length > 0) {
+        alertBox.style.display = 'block'; 
+        alertBox.innerHTML = alerts.join('<br>');
+        if(statusBadge) {
+            statusBadge.className = 'badge danger-alert'; 
+            statusBadge.style.display = 'inline-block'; 
+            statusBadge.innerText = '❌ System: ALERTS ACTIVE';
+        }
+    } else {
+        alertBox.style.display = 'none';
+        if (document.getElementById('eps-alert-box')?.style.display === 'none') {
+            statusBadge.className = 'badge nominal'; 
+            statusBadge.innerText = '✅ System: NOMINAL'; 
+            statusBadge.style.display = 'inline-block';
+        }
     }
 }
 
 if (socket) {
     socket.on('telemetry_update', (data) => {
-        
-        // Keep our JS completely synced to the Satellite's onboard clock!
-        if (data.timestamp) {
-            lastKnownSatTime = data.timestamp * 1000;
-        }
         
         const passBadge = document.getElementById('pass-status-badge');
         if(passBadge) {
@@ -445,6 +366,9 @@ if (socket) {
             }
         }
         
+        // Ensure GSN RSSI does not show undefined if no data yet
+        let current_gsn_rssi = data.gsn ? data.gsn.rssi : (latestTelemetryCache[2] !== "--" ? latestTelemetryCache[2] : 0);
+
         if (data.eps) {
             let i_payload = data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
             let i_comms = data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
@@ -452,7 +376,7 @@ if (socket) {
             
             latestTelemetryCache[0] = data.rssi_gs;
             latestTelemetryCache[1] = data.rssi_uplink;
-            latestTelemetryCache[2] = data.rssi_gsn;
+            latestTelemetryCache[2] = current_gsn_rssi;
             latestTelemetryCache[3] = data.obc_temp.toFixed(1);
             latestTelemetryCache[4] = data.payload_temp.toFixed(1);
             latestTelemetryCache[5] = data.eps.temp.toFixed(1);
@@ -464,33 +388,71 @@ if (socket) {
             latestTelemetryCache[11] = i_comms;
             latestTelemetryCache[12] = i_obc;
             
-            if(data.attitude) {
-                latestTelemetryCache[13] = data.attitude.pitch.toFixed(1);
-                latestTelemetryCache[14] = data.attitude.roll.toFixed(1);
-                latestTelemetryCache[15] = data.attitude.yaw.toFixed(1);
-                
-                const pEl = document.getElementById('val-att-pitch');
-                const rEl = document.getElementById('val-att-roll');
-                const yEl = document.getElementById('val-att-yaw');
-                if (pEl) pEl.innerText = latestTelemetryCache[13] + '°';
-                if (rEl) rEl.innerText = latestTelemetryCache[14] + '°';
-                if (yEl) yEl.innerText = latestTelemetryCache[15] + '°';
-            }
-            
-            if(data.env) {
-                latestTelemetryCache[16] = data.env.pressure.toFixed(1);
-                latestTelemetryCache[17] = data.env.humidity.toFixed(1);
+            if (data.env) {
+                latestTelemetryCache[13] = data.env.pressure.toFixed(1);
+                latestTelemetryCache[14] = data.env.humidity.toFixed(1);
                 
                 const prEl = document.getElementById('val-env-press');
                 const huEl = document.getElementById('val-env-hum');
-                if (prEl) prEl.innerText = latestTelemetryCache[16] + ' hPa';
-                if (huEl) huEl.innerText = latestTelemetryCache[17] + ' %';
+                if (prEl) prEl.innerText = latestTelemetryCache[13] + ' hPa';
+                if (huEl) huEl.innerText = latestTelemetryCache[14] + ' %';
             }
             
-            if(data.gps) {
-                latestTelemetryCache[18] = data.gps.alt.toFixed(1);
+            if (data.gps) {
+                latestTelemetryCache[15] = data.gps.alt.toFixed(1);
                 const altEl = document.getElementById('val-gps-alt');
-                if (altEl) altEl.innerText = latestTelemetryCache[18] + ' km';
+                if (altEl) altEl.innerText = latestTelemetryCache[15] + ' km';
+            }
+            
+            if (data.lat && data.lng) {
+                const latEl = document.getElementById('val-gps-lat');
+                const lngEl = document.getElementById('val-gps-lng');
+                if (latEl) latEl.innerText = data.lat.toFixed(4) + '°';
+                if (lngEl) lngEl.innerText = data.lng.toFixed(4) + '°';
+            }
+            
+            if (data.gsn) {
+                const gTimeEl = document.getElementById('val-gsn-time');
+                if (gTimeEl && data.gsn.timestamp) {
+                    const gsnDate = new Date(data.gsn.timestamp * 1000);
+                    gTimeEl.innerText = "Recorded: " + gsnDate.toLocaleTimeString('en-GB');
+                }
+
+                const gNode = document.getElementById('val-gsn-node');
+                const gSmoke = document.getElementById('val-gsn-smoke');
+                const gSound = document.getElementById('val-gsn-sound');
+                const gSoil = document.getElementById('val-gsn-soil');
+                const gTemp = document.getElementById('val-gsn-temp');
+                const gHum = document.getElementById('val-gsn-hum');
+                const gBat = document.getElementById('val-gsn-bat');
+                
+                if (gNode) gNode.innerText = `NODE: ${data.gsn.node_id}`;
+                if (gSmoke) {
+                    gSmoke.innerText = data.gsn.smoke === 1 ? "DETECTED" : "CLEAR";
+                    gSmoke.style.color = data.gsn.smoke === 1 ? "var(--danger-red)" : "var(--success-green)";
+                }
+                if (gSound) {
+                    gSound.innerText = data.gsn.sound === 1 ? "DETECTED" : "CLEAR";
+                    gSound.style.color = data.gsn.sound === 1 ? "#f1c40f" : "var(--success-green)";
+                }
+                if (gSoil) gSoil.innerText = data.gsn.soil + '%';
+                if (gTemp) gTemp.innerText = data.gsn.temp.toFixed(1) + '°C';
+                if (gHum) gHum.innerText = data.gsn.hum.toFixed(1) + '%';
+                if (gBat) {
+                    gBat.innerText = data.gsn.soc + '%';
+                    gBat.style.color = data.gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
+                }
+
+                const gsnIconDiv = document.getElementById('gsn-map-icon');
+                if (gsnIconDiv) {
+                    if (data.gsn.smoke === 1 || data.gsn.sound === 1) {
+                        gsnIconDiv.style.filter = 'drop-shadow(0 0 15px #e74c3c)';
+                        gsnIconDiv.innerText = '🔥';
+                    } else {
+                        gsnIconDiv.style.filter = 'drop-shadow(0 0 8px #00ff00)';
+                        gsnIconDiv.innerText = '🌳';
+                    }
+                }
             }
             
             const socEl = document.getElementById('val-eps-soc');
@@ -509,7 +471,6 @@ if (socket) {
             if (vbatEl) vbatEl.innerText = data.eps.v_bat.toFixed(2) + ' V';
             if (v3v3El) v3v3El.innerText = data.eps.v_3v3.toFixed(2) + ' V';
             if (v5vEl) v5vEl.innerText = data.eps.v_5v.toFixed(2) + ' V';
-            
             if (plDrawEl) plDrawEl.innerText = i_payload + ' mA';
             if (cmDrawEl) cmDrawEl.innerText = i_comms + ' mA';
             if (obDrawEl) obDrawEl.innerText = i_obc + ' mA';
@@ -534,24 +495,25 @@ if (socket) {
             }
 
             checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env);
+            checkGSNAnomalies(data.gsn);
             triggerEPSPulse();
             
-            if (isLiveMode) {
-                const group = document.getElementById('chart-group')?.value;
-                const metricName = document.getElementById('chart-metric')?.value;
-                if(group && metricName) updateLiveTextValueDisplay(group, metricName);
-            }
+            const group = document.getElementById('chart-group')?.value;
+            const metricName = document.getElementById('chart-metric')?.value;
+            if(group && metricName) updateLiveTextValueDisplay(group, metricName);
         }
 
-        if (window.signalChart && isLiveMode) {
+        if (window.signalChart) {
             window.signalChart.data.labels.push(satTimeString);
             
             window.signalChart.data.datasets[0].data.push(data.rssi_gs);
             window.signalChart.data.datasets[1].data.push(data.rssi_uplink);
-            window.signalChart.data.datasets[2].data.push(data.rssi_gsn);
+            window.signalChart.data.datasets[2].data.push(current_gsn_rssi); // Fix applied here!
+            
             window.signalChart.data.datasets[3].data.push(data.obc_temp);
             window.signalChart.data.datasets[4].data.push(data.payload_temp);
             window.signalChart.data.datasets[5].data.push(data.eps ? data.eps.temp : 0);
+            
             window.signalChart.data.datasets[6].data.push(data.eps ? data.eps.soc : 0);
             window.signalChart.data.datasets[7].data.push(data.eps ? data.eps.i_in : 0);
             window.signalChart.data.datasets[8].data.push(data.eps ? data.eps.i_out : 0);
@@ -565,12 +527,9 @@ if (socket) {
             window.signalChart.data.datasets[11].data.push(i_c);
             window.signalChart.data.datasets[12].data.push(i_o);
             
-            window.signalChart.data.datasets[13].data.push(data.attitude ? data.attitude.pitch : 0);
-            window.signalChart.data.datasets[14].data.push(data.attitude ? data.attitude.roll : 0);
-            window.signalChart.data.datasets[15].data.push(data.attitude ? data.attitude.yaw : 0);
-            window.signalChart.data.datasets[16].data.push(data.env ? data.env.pressure : 0);
-            window.signalChart.data.datasets[17].data.push(data.env ? data.env.humidity : 0);
-            window.signalChart.data.datasets[18].data.push(data.gps ? data.gps.alt : 0);
+            window.signalChart.data.datasets[13].data.push(data.env ? data.env.pressure : 0);
+            window.signalChart.data.datasets[14].data.push(data.env ? data.env.humidity : 0);
+            window.signalChart.data.datasets[15].data.push(data.gps ? data.gps.alt : 0);
 
             if (window.signalChart.data.labels.length > 20) {
                 window.signalChart.data.labels.shift();
@@ -580,7 +539,7 @@ if (socket) {
         }
 
         if (data.lat && data.lng && satelliteMarker) {
-            const pos = [data.lat, data.lng];
+            const pos =[data.lat, data.lng];
             satelliteMarker.setLatLng(pos);
             orbitPath.addLatLng(pos);
             map.panTo(pos, { animate: true, duration: 1.0 });
@@ -592,9 +551,9 @@ if (socket) {
     });
 }
 
-// ─────────────────────────────────────────────────────
-// 5. PAYLOAD ANALYZER — Sample loading
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 5. PAYLOAD ANALYZER — SAMPLE LOADING
+// ==============================================================================
 const SAMPLE_LABELS = {
     'forest_healthy.jpg': '🌳 Healthy forest',
     'forest_deforested.jpg': '❌ Deforested area',
@@ -610,7 +569,8 @@ async function loadSamples() {
     if (!sels.length) return;
     
     try {
-        const files = await fetch('/api/samples').then(r => r.json());
+        const res = await fetch('/api/samples');
+        const files = await res.json();
         
         sels.forEach(sel => {
             sel.innerHTML = '<option value="">-- select image --</option>';
@@ -620,7 +580,9 @@ async function loadSamples() {
                 opt.innerText = SAMPLE_LABELS[f] || f;
                 sel.appendChild(opt);
             });
-        });['before-select', 'after-select'].forEach(id => {
+        });
+        
+        ['before-select', 'after-select'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', checkCompareReady);
@@ -634,9 +596,9 @@ async function loadSamples() {
     }
 }
 
-// ─────────────────────────────────────────────────────
-// 6. RGB TAB — Image preview
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 6. RGB TAB — IMAGE PREVIEW
+// ==============================================================================
 function previewSample() {
     const sel = document.getElementById('sample-select');
     const box = document.getElementById('rgb-preview-box');
@@ -671,9 +633,9 @@ function previewSample() {
     img.src = '/samples/' + sel.value;
 }
 
-// ─────────────────────────────────────────────────────
-// 7. RGB TAB — OpenCV Analysis
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 7. RGB TAB — OPENCV ANALYSIS
+// ==============================================================================
 async function runRGBAnalysis() {
     const sel = document.getElementById('sample-select');
     if (!sel || !sel.value) return;
@@ -733,8 +695,12 @@ function renderRGBResults(data) {
     setRiskBadge('badge-defor', data.deforestation_risk);
 
     const allZones =[];
-    if (data.bare_regions) allZones.push(...data.bare_regions);
-    if (data.burn_regions) allZones.push(...data.burn_regions);
+    if (data.bare_regions) {
+        allZones.push(...data.bare_regions);
+    }
+    if (data.burn_regions) {
+        allZones.push(...data.burn_regions);
+    }
     
     const zoneWrap = document.getElementById('zone-list-wrap');
     const zoneList = document.getElementById('zone-list');
@@ -789,9 +755,9 @@ function renderRGBResults(data) {
     document.getElementById('rgb-results').style.display = 'block';
 }
 
-// ─────────────────────────────────────────────────────
-// 8. RGB TAB — Canvas overlay
-// ─────────────────────────────────────────────────────
+// ==============================================================================
+// 8. RGB TAB — CANVAS OVERLAY
+// ==============================================================================
 function drawRegions(data) {
     const img = document.getElementById('rgb-img');
     const canvas = document.getElementById('rgb-canvas');
@@ -880,9 +846,9 @@ function drawRegions(data) {
     document.getElementById('rgb-legend').style.display = hasContent ? 'flex' : 'none';
 }
 
-// ─────────────────────────────────────────────────────
+// ==============================================================================
 // 9. THERMAL SCAN TAB
-// ─────────────────────────────────────────────────────
+// ==============================================================================
 const THERMAL_SCENARIOS = {
     normal: { 
         data:[
@@ -949,6 +915,19 @@ function thermalColor(temp) {
 }
 
 function loadThermal(scenarioName) {
+    document.querySelectorAll('.thermal-scenario-row .cmd-btn').forEach(btn => {
+        btn.classList.remove('active');
+        btn.style.boxShadow = 'none';
+    });
+    
+    if (scenarioName === 'live') {
+        const liveBtn = document.getElementById('btn-live-thermal');
+        if(liveBtn) {
+            liveBtn.classList.add('active');
+            liveBtn.style.boxShadow = '0 0 5px rgba(102,252,241,0.3)';
+        }
+    }
+
     const scenario = THERMAL_SCENARIOS[scenarioName];
     if (!scenario) return;
     
@@ -1009,9 +988,13 @@ function loadThermal(scenarioName) {
     document.getElementById('t-hotspots').innerText = hotspots.length;
     
     let riskLevel = 'low';
-    if (max > 70) riskLevel = 'critical';
-    else if (max > 50) riskLevel = 'high';
-    else if (max > 38) riskLevel = 'medium';
+    if (max > 70) {
+        riskLevel = 'critical';
+    } else if (max > 50) {
+        riskLevel = 'high';
+    } else if (max > 38) {
+        riskLevel = 'medium';
+    }
     
     setRiskBadge('t-risk', riskLevel);
     document.getElementById('t-interp').innerText = scenario.interp;
@@ -1045,7 +1028,7 @@ function updateThermalFromTelemetry(thermalArray) {
     
     THERMAL_SCENARIOS['live'] = { 
         data: thermalArray, 
-        interp: 'Live downlink — current orbital pass.' 
+        interp: 'Live ESP32 Downlink — current orbital pass.' 
     };
     
     const payloadThermal = document.getElementById('payload-thermal');
@@ -1054,9 +1037,9 @@ function updateThermalFromTelemetry(thermalArray) {
     }
 }
 
-// ─────────────────────────────────────────────────────
+// ==============================================================================
 // 10. CHANGE DETECTION TAB
-// ─────────────────────────────────────────────────────
+// ==============================================================================
 function previewChange(which) {
     const sel = document.getElementById(which + '-select');
     const img = document.getElementById(which + '-img');
@@ -1244,6 +1227,122 @@ function setRiskBadge(id, level) {
     el.innerText = level.toUpperCase();
 }
 
+// ────────────────────────────────────────────────────────────
+// 11. CONTROL PANEL - COMMAND UPLINK & TERMINAL LOGIC
+// ────────────────────────────────────────────────────────────
+
+window.sendCommand = function(cmdString) {
+    if (socket && socket.connected) {
+        socket.emit('send_command', { cmd: cmdString });
+    } else {
+        alert("Cannot send command: Disconnected from Ground Station server.");
+    }
+};
+
+window.sendManualCommand = function() {
+    const inputEl = document.getElementById('manual-cmd');
+    if (inputEl && inputEl.value.trim() !== '') {
+        sendCommand(inputEl.value.trim());
+        inputEl.value = ''; 
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    const manualInput = document.getElementById('manual-cmd');
+    if (manualInput) {
+        manualInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendManualCommand();
+            }
+        });
+    }
+});
+
+if (socket) {
+    socket.on('terminal_log', (data) => {
+        const term = document.getElementById('terminal-log');
+        if (!term) return;
+
+        const timeStr = new Date().toLocaleTimeString('en-GB');
+        const entry = document.createElement('div');
+        entry.style.marginBottom = '4px';
+
+        if (data.type === 'tx') {
+            entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] TX:</span> <span style="color:var(--neon-cyan); font-weight:bold;">${data.msg}</span>`;
+        } else if (data.type === 'rx') {
+            entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] RX:</span> <span style="color:#00ff00;">${data.msg}</span>`;
+        } else if (data.type === 'error') {
+            entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] ERR:</span> <span style="color:var(--danger-red);">${data.msg}</span>`;
+        }
+
+        term.appendChild(entry);
+        term.scrollTop = term.scrollHeight; 
+    });
+}
+
+// ────────────────────────────────────────────────────────────
+// 12. CONTROL PANEL - PAYLOAD TASKING (SKYFIELD INTEGRATION)
+// ────────────────────────────────────────────────────────────
+
+let nextPassUnix = null;
+
+window.predictNextPass = async function() {
+    const timeDisplay = document.getElementById('pass-time-display');
+    const unixDisplay = document.getElementById('pass-unix-display');
+    const btnSchedule = document.getElementById('btn-schedule');
+    const btnPredict = document.getElementById('btn-predict');
+
+    if (!timeDisplay) return;
+
+    btnPredict.disabled = true;
+    btnPredict.innerText = "Calculating...";
+    timeDisplay.innerText = "Running orbital math...";
+    timeDisplay.style.color = "#f1c40f";
+
+    try {
+        const res = await fetch('/api/predict_pass');
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        nextPassUnix = data.unix;
+        timeDisplay.innerText = data.date;
+        timeDisplay.style.color = "var(--success-green)";
+        unixDisplay.innerText = data.unix;
+
+        if (btnSchedule) {
+            btnSchedule.style.opacity = "1";
+            btnSchedule.style.pointerEvents = "auto";
+        }
+
+    } catch (e) {
+        timeDisplay.innerText = "Calculation Failed";
+        timeDisplay.style.color = "var(--danger-red)";
+        alert("Skyfield Error: " + e.message);
+    } finally {
+        btnPredict.disabled = false;
+        btnPredict.innerText = "Recalculate";
+    }
+};
+
+window.schedulePayload = function() {
+    if (!nextPassUnix) {
+        alert("Calculate pass first!");
+        return;
+    }
+
+    const taskCmd = `PAYLOAD:TASK,${nextPassUnix},60`;
+    sendCommand(taskCmd);
+    alert(`Payload task command scheduled for UNIX: ${nextPassUnix}`);
+    
+    const btnSchedule = document.getElementById('btn-schedule');
+    if (btnSchedule) {
+        btnSchedule.style.opacity = "0.5";
+        btnSchedule.style.pointerEvents = "none";
+    }
+};
+
+// ── Initialization ──
 if (document.getElementById('sample-select')) {
     loadSamples();
 }

@@ -124,7 +124,7 @@
                     </div>
                 </div>
 
-                <!-- Row 2: Internal Environment -->
+               <!-- Row 2: Internal Environment -->
                 <div class="metrics-row" style="margin-top:10px;">
                     <div class="metric-box" style="padding:8px;">
                         <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#f1c40f;" id="val-env-press">-- hPa</div>
@@ -135,7 +135,25 @@
                         <div class="metric-sub">Int. Humidity</div>
                     </div>
                 </div>
-            </section>
+
+                <!-- NEW ROW: SD Card Storage Data -->
+                <div class="panel-header-flex" style="margin-top:20px; font-size:0.85rem; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:5px;">
+                    <span style="color:#8a9ba8;">💾 Subsystem SD Storage Usage</span>
+                </div>
+                <div class="metrics-row" style="margin-top:10px;">
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-sd-obc">--%</div>
+                        <div class="metric-sub">OBC Logs</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-sd-pay">--%</div>
+                        <div class="metric-sub">Payload Images</div>
+                    </div>
+                    <div class="metric-box" style="padding:8px; border: 1px solid rgba(102,252,241,0.1);">
+                        <div class="metric-big dynamic-value" style="font-size:1.1rem; color:#66fcf1;" id="val-sd-gsn">--%</div>
+                        <div class="metric-sub">GSN Data</div>
+                    </div>
+                </div>
 
             <!-- 🌳 GROUND SENSOR NETWORK (GSN) -->
             <section class="panel gsn-section">

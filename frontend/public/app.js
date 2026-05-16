@@ -341,32 +341,22 @@ if (socket) {
 
         const fdirBadge = document.getElementById('badge-fdir-mode');
         if (fdirBadge) {
-            if (data.fdir_mode === 'OVERRIDE') {
-                fdirBadge.innerText = '🤖 FDIR: OVERRIDE';
-                fdirBadge.style.color = '#f1c40f'; 
-                fdirBadge.style.borderColor = '#f1c40f';
-            } else {
-                fdirBadge.innerText = '🤖 FDIR: AUTO';
-                fdirBadge.style.color = '#66fcf1'; 
-                fdirBadge.style.borderColor = '#66fcf1';
-            }
+            fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
+            fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
+            fdirBadge.style.borderColor = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1';
         }
 
         const plBadge = document.getElementById('badge-payload-state');
         if (plBadge) {
             if (data.payload_state === 1) {
-                plBadge.innerText = '📸 Payload: IMAGING'; 
-                plBadge.style.color = '#f1c40f';
+                plBadge.innerText = '📸 Payload: IMAGING'; plBadge.style.color = '#f1c40f';
             } else if (data.payload_state === 2) {
-                plBadge.innerText = '📡 Payload: DOWNLINKING'; 
-                plBadge.style.color = '#66fcf1';
+                plBadge.innerText = '📡 Payload: DOWNLINKING'; plBadge.style.color = '#66fcf1';
             } else {
-                plBadge.innerText = '💤 Payload: IDLE/OFF'; 
-                plBadge.style.color = '#c5c6c7';
+                plBadge.innerText = '💤 Payload: IDLE/OFF'; plBadge.style.color = '#c5c6c7';
             }
         }
         
-        // Ensure GSN RSSI does not show undefined if no data yet
         let current_gsn_rssi = data.gsn ? data.gsn.rssi : (latestTelemetryCache[2] !== "--" ? latestTelemetryCache[2] : 0);
 
         if (data.eps) {
@@ -389,19 +379,15 @@ if (socket) {
             latestTelemetryCache[12] = i_obc;
             
             if (data.env) {
-                latestTelemetryCache[13] = data.env.pressure.toFixed(1);
-                latestTelemetryCache[14] = data.env.humidity.toFixed(1);
-                
                 const prEl = document.getElementById('val-env-press');
                 const huEl = document.getElementById('val-env-hum');
-                if (prEl) prEl.innerText = latestTelemetryCache[13] + ' hPa';
-                if (huEl) huEl.innerText = latestTelemetryCache[14] + ' %';
+                if (prEl) prEl.innerText = data.env.pressure.toFixed(1) + ' hPa';
+                if (huEl) huEl.innerText = data.env.humidity.toFixed(1) + ' %';
             }
             
             if (data.gps) {
-                latestTelemetryCache[15] = data.gps.alt.toFixed(1);
                 const altEl = document.getElementById('val-gps-alt');
-                if (altEl) altEl.innerText = latestTelemetryCache[15] + ' km';
+                if (altEl) altEl.innerText = data.gps.alt.toFixed(1) + ' km';
             }
             
             if (data.lat && data.lng) {
@@ -410,12 +396,26 @@ if (socket) {
                 if (latEl) latEl.innerText = data.lat.toFixed(4) + '°';
                 if (lngEl) lngEl.innerText = data.lng.toFixed(4) + '°';
             }
+
+            // === 💾 SD CARD LOGIC UPDATES ===
+            if (data.sd) {
+                const sdObcEl = document.getElementById('val-sd-obc');
+                const sdPayEl = document.getElementById('val-sd-pay');
+                
+                if (sdObcEl) {
+                    sdObcEl.innerText = data.sd.obc.toFixed(1) + '%';
+                    sdObcEl.style.color = data.sd.obc > 85 ? 'var(--danger-red)' : '#66fcf1';
+                }
+                if (sdPayEl) {
+                    sdPayEl.innerText = data.sd.payload.toFixed(1) + '%';
+                    sdPayEl.style.color = data.sd.payload > 85 ? 'var(--danger-red)' : '#66fcf1';
+                }
+            }
             
             if (data.gsn) {
                 const gTimeEl = document.getElementById('val-gsn-time');
                 if (gTimeEl && data.gsn.timestamp) {
-                    const gsnDate = new Date(data.gsn.timestamp * 1000);
-                    gTimeEl.innerText = "Recorded: " + gsnDate.toLocaleTimeString('en-GB');
+                    gTimeEl.innerText = "Recorded: " + new Date(data.gsn.timestamp * 1000).toLocaleTimeString('en-GB');
                 }
 
                 const gNode = document.getElementById('val-gsn-node');
@@ -441,6 +441,13 @@ if (socket) {
                 if (gBat) {
                     gBat.innerText = data.gsn.soc + '%';
                     gBat.style.color = data.gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
+                }
+
+                // === 💾 GSN SD CARD ===
+                const sdGsnEl = document.getElementById('val-sd-gsn');
+                if (sdGsnEl && data.gsn.sd !== undefined) {
+                    sdGsnEl.innerText = data.gsn.sd.toFixed(1) + '%';
+                    sdGsnEl.style.color = data.gsn.sd > 85 ? 'var(--danger-red)' : '#66fcf1';
                 }
 
                 const gsnIconDiv = document.getElementById('gsn-map-icon');
@@ -482,15 +489,12 @@ if (socket) {
                 if (net > 0) {
                     stateEl.innerHTML = `🔋 CHARGING (+${net} mA)`;
                     stateEl.style.color = 'var(--success-green)';
-                    stateEl.style.borderColor = 'var(--success-green)';
                 } else if (net < 0) {
                     stateEl.innerHTML = `⚠️ DISCHARGING (${net} mA)`;
                     stateEl.style.color = 'var(--danger-red)';
-                    stateEl.style.borderColor = 'var(--danger-red)';
                 } else {
                     stateEl.innerHTML = `⚖️ BALANCED (0 mA)`;
                     stateEl.style.color = '#f1c40f';
-                    stateEl.style.borderColor = '#f1c40f';
                 }
             }
 
@@ -505,15 +509,12 @@ if (socket) {
 
         if (window.signalChart) {
             window.signalChart.data.labels.push(satTimeString);
-            
             window.signalChart.data.datasets[0].data.push(data.rssi_gs);
             window.signalChart.data.datasets[1].data.push(data.rssi_uplink);
-            window.signalChart.data.datasets[2].data.push(current_gsn_rssi); // Fix applied here!
-            
+            window.signalChart.data.datasets[2].data.push(current_gsn_rssi); 
             window.signalChart.data.datasets[3].data.push(data.obc_temp);
             window.signalChart.data.datasets[4].data.push(data.payload_temp);
             window.signalChart.data.datasets[5].data.push(data.eps ? data.eps.temp : 0);
-            
             window.signalChart.data.datasets[6].data.push(data.eps ? data.eps.soc : 0);
             window.signalChart.data.datasets[7].data.push(data.eps ? data.eps.i_in : 0);
             window.signalChart.data.datasets[8].data.push(data.eps ? data.eps.i_out : 0);
@@ -526,7 +527,6 @@ if (socket) {
             window.signalChart.data.datasets[10].data.push(i_p);
             window.signalChart.data.datasets[11].data.push(i_c);
             window.signalChart.data.datasets[12].data.push(i_o);
-            
             window.signalChart.data.datasets[13].data.push(data.env ? data.env.pressure : 0);
             window.signalChart.data.datasets[14].data.push(data.env ? data.env.humidity : 0);
             window.signalChart.data.datasets[15].data.push(data.gps ? data.gps.alt : 0);
@@ -1331,14 +1331,15 @@ window.schedulePayload = function() {
         return;
     }
 
-    const taskCmd = `PAYLOAD:TASK,${nextPassUnix},60`;
+    // New format: SCH:<UNIX_TIME>:<TARGET_COMMAND>
+    const taskCmd = `SCH:${nextPassUnix}:PAYLOAD:CAPTURE,60`;
     sendCommand(taskCmd);
-    alert(`Payload task command scheduled for UNIX: ${nextPassUnix}`);
     
     const btnSchedule = document.getElementById('btn-schedule');
     if (btnSchedule) {
         btnSchedule.style.opacity = "0.5";
         btnSchedule.style.pointerEvents = "none";
+        btnSchedule.innerText = "Scheduled ✓";
     }
 };
 

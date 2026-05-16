@@ -45,25 +45,25 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div>
                         <strong style="color:var(--neon-cyan);">OBC Subsystem</strong>
-                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Main ESP32 • Command: PING</div>
+                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Main ESP32 • Command: IMM:OBC:PING</div>
                     </div>
-                    <button class="cmd-btn" onclick="sendCommand('PING')">Ping OBC</button>
+                    <button class="cmd-btn" onclick="sendCommand('IMM:OBC:PING')">Ping OBC</button>
                 </div>
 
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div>
                         <strong style="color:#f1c40f;">Optical Payload</strong>
-                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Serial2 • Command: PAYLOAD:PING</div>
+                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Serial2 • Command: IMM:PAYLOAD:PING</div>
                     </div>
-                    <button class="cmd-btn warning" onclick="sendCommand('PAYLOAD:PING')">Ping Payload</button>
+                    <button class="cmd-btn warning" onclick="sendCommand('IMM:PAYLOAD:PING')">Ping Payload</button>
                 </div>
 
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div>
                         <strong style="color:var(--success-green);">Downlink Data</strong>
-                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: SD Card • Command: REQ LATEST</div>
+                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: SD Card • Command: IMM:REQ_LATEST</div>
                     </div>
-                    <button class="cmd-btn" style="border-color:var(--success-green); color:var(--success-green);" onclick="sendCommand('REQ LATEST')">Req Latest CSV</button>
+                    <button class="cmd-btn" style="border-color:var(--success-green); color:var(--success-green);" onclick="sendCommand('IMM:REQ_LATEST')">Req Latest CSV</button>
                 </div>
             </div>
         </section>
@@ -110,10 +110,11 @@
             
             <div id="terminal-log" style="height:250px; background:#0b0c10; padding:15px; font-family:'Courier New', monospace; font-size:0.85rem; overflow-y:auto; border-radius:6px; border:1px solid rgba(102,252,241,0.3);">
                 <div style="color:#8a9ba8;">[SYSTEM] Secure uplink terminal initialized. Awaiting commands...</div>
+                <div style="color:#8a9ba8;">[SYSTEM] Prepend immediate commands with IMM: and scheduled commands with SCH:UNIX_TIMESTAMP:</div>
             </div>
 
             <div style="display:flex; gap:10px; margin-top:15px;">
-                <input type="text" id="manual-cmd" placeholder="Enter manual telecommand..." style="flex:1; background:rgba(0,0,0,0.5); border:1px solid var(--neon-cyan); color:white; padding:10px; border-radius:4px; font-family:'Courier New', monospace;">
+                <input type="text" id="manual-cmd" placeholder="e.g. IMM:PAYLOAD:ON" style="flex:1; background:rgba(0,0,0,0.5); border:1px solid var(--neon-cyan); color:white; padding:10px; border-radius:4px; font-family:'Courier New', monospace;">
                 <button class="cmd-btn" onclick="sendManualCommand()">Transmit</button>
             </div>
         </section>

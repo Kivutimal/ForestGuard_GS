@@ -1,30 +1,20 @@
 // ==============================================================================
-// FORESTGUARD_KENYA - FULL SYSTEM SIMULATOR (Single ESP32)
-// Features: Detailed EPS, FDIR, Env Sensors, GPS Altitude, and GSN Data Downlink
+// FORESTGUARD ALPHA - LEO SATELLITE SIMULATOR (ESP32 OBC)
+// PHASE 1: SD Card Storage Simulation Added
 // ==============================================================================
 
 unsigned long lastLoopTime = 0;
-// Start at a fixed UNIX timestamp for consistent testing
 unsigned long satelliteUnixTime = 1713170000; 
 
-// ---------------------------------------------------------
-// ORBITAL PASS SIMULATION VARIABLES
-// ---------------------------------------------------------
 bool inPass = false;
 unsigned long passTimer = 0;
-const unsigned long PASS_DURATION = 40000; // 40 seconds over Ground Station
-const unsigned long LOS_DURATION = 20000;  // 20 seconds out of range
+const unsigned long PASS_DURATION = 40000;
+const unsigned long LOS_DURATION = 20000;  
 
-// ---------------------------------------------------------
-// CORE SUBSYSTEM & THERMAL VARIABLES
-// ---------------------------------------------------------
 float obc_temp = 30.0;      
 float payload_temp = 25.0;  
 int rssi_uplink = -85;      
 
-// ---------------------------------------------------------
-// ELECTRICAL POWER SUBSYSTEM (EPS) VARIABLES
-// ---------------------------------------------------------
 float eps_soc = 85.0;       
 float eps_v_bat = 8.0;      
 float eps_v_3v3 = 3.3;      
@@ -36,106 +26,141 @@ int eps_i_payload = 0;
 int eps_i_comms = 0;        
 int eps_i_obc = 150;        
 
-// ---------------------------------------------------------
-// ENVIRONMENT & GPS VARIABLES (IMU Removed)
-// ---------------------------------------------------------
 float env_pressure = 1013.25; 
 float env_humidity = 12.0;    
 float gps_alt = 405.5;        
 
-// ---------------------------------------------------------
-// MISSION MODES & FDIR
-// ---------------------------------------------------------
-// Payload States: 0 = OFF, 1 = IMAGING, 2 = DOWNLINKING
 int payload_state = 0; 
 bool fdir_override = false; 
 
+// --- NEW: SD Card Storage Simulators (Percentage 0.0 to 100.0) ---
+float obc_sd_used = 12.4;     // Telemetry logs
+float payload_sd_used = 45.1; // Image storage
+float gsn_sd_used = 8.5;      // GSN Node local storage
+
 // ---------------------------------------------------------
-// STORE-AND-FORWARD CACHE (Delay Tolerant Networking)
+// TELECOMMAND QUEUE
 // ---------------------------------------------------------
-bool has_cached_gsn = false;
-unsigned long gsn_timestamp = 0;
-float gsn_temp = 0.0;
-float gsn_hum = 0.0;
-int gsn_soil = 0;
-int gsn_smoke = 0;
-int gsn_sound = 0;
-float gsn_v_bat = 0.0;
-int gsn_soc = 0;
-int rssi_gsn = -100;
+#define MAX_TASKS 5
+struct ScheduledTask {
+    unsigned long executeAtUnix;
+    String command;
+    bool isPending;
+};
+ScheduledTask taskQueue[MAX_TASKS];
+
+bool scheduleCommand(unsigned long execTime, String cmd) {
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (!taskQueue[i].isPending) {
+            taskQueue[i].executeAtUnix = execTime;
+            taskQueue[i].command = cmd;
+            taskQueue[i].isPending = true;
+            return true;
+        }
+    }
+    return false;
+}
+
+void executeCommand(String cmd) {
+    if (cmd == "PAYLOAD:ON" || cmd == "PAYLOAD:CAPTURE,60") {
+        payload_state = 1;
+        Serial.println("TLM_MSG,Payload powered ON (Imaging Mode)");
+    } 
+    else if (cmd == "PAYLOAD:OFF") {
+        payload_state = 0;
+        Serial.println("TLM_MSG,Payload powered OFF");
+    }
+    else if (cmd == "OBC:PING") {
+        Serial.println("TLM_MSG,OBC PONG - System nominal");
+    }
+    else if (cmd == "PAYLOAD:PING") {
+        Serial.println("TLM_MSG,PAYLOAD PONG - Optics nominal");
+    }
+    else if (cmd == "REQ_LATEST") {
+        Serial.println("TLM_MSG,Queuing SD Card data for downlink");
+        payload_state = 2; // Downlinking mode
+        obc_sd_used = max(0.0f, obc_sd_used - 1.5f); // Simulate clearing some space after DL
+    }
+    else {
+        Serial.print("TLM_MSG,Command not recognized: ");
+        Serial.println(cmd);
+    }
+}
 
 void setup() {
-    // Communication with Python Backend
     Serial.begin(115200);
     randomSeed(analogRead(0));
+    passTimer = millis(); 
+    
+    for (int i = 0; i < MAX_TASKS; i++) {
+        taskQueue[i].isPending = false;
+    }
 }
 
 void loop() {
-    // Run the main simulation loop exactly once per second
+    if (Serial.available() > 0) {
+        String rawCmd = Serial.readStringUntil('\n');
+        rawCmd.trim(); 
+        
+        if (rawCmd.startsWith("IMM:")) {
+            String action = rawCmd.substring(4); 
+            executeCommand(action);
+        } 
+        else if (rawCmd.startsWith("SCH:")) {
+            int firstColon = 3;
+            int secondColon = rawCmd.indexOf(':', firstColon + 1);
+            if (secondColon != -1) {
+                unsigned long execTime = rawCmd.substring(firstColon + 1, secondColon).toInt();
+                String action = rawCmd.substring(secondColon + 1);
+                if (scheduleCommand(execTime, action)) {
+                    Serial.print("TLM_MSG,Command Scheduled for UNIX ");
+                    Serial.println(execTime);
+                } else {
+                    Serial.println("TLM_MSG,ERROR: Task Queue Full");
+                }
+            }
+        }
+    }
+
     if (millis() - lastLoopTime >= 1000) {
         lastLoopTime = millis();
         satelliteUnixTime++; 
 
-        // =========================================================
-        // 1. ORBITAL PHASE CALCULATOR
-        // =========================================================
-        int current_phase = satelliteUnixTime % 90; // 90 second simulated orbit
-        
-        // Seconds 0 to 20: Flying over the Forest (Pinging Ground Sensors)
-        bool in_gsn_pass = (current_phase >= 0 && current_phase < 20);
-        
-        // Seconds 45 to 65: Flying over Juja Ground Station (Downlinking)
-        if (current_phase == 45) {
-            inPass = true;
-            payload_state = 2; // Auto-start SD Card Read for Downlink
-        } else if (current_phase == 65) {
-            inPass = false;
+        for (int i = 0; i < MAX_TASKS; i++) {
+            if (taskQueue[i].isPending && satelliteUnixTime >= taskQueue[i].executeAtUnix) {
+                executeCommand(taskQueue[i].command);
+                taskQueue[i].isPending = false; 
+            }
         }
 
-        // =========================================================
-        // 2. GROUND SENSOR NETWORK (GSN) DATA COLLECTION
-        // =========================================================
-        if (in_gsn_pass) {
-            has_cached_gsn = true;
-            gsn_timestamp = satelliteUnixTime; 
-            rssi_gsn = random(-95, -70);
-            gsn_smoke = random(0, 100) < 5 ? 1 : 0; 
-            gsn_sound = random(0, 100) < 8 ? 1 : 0; 
-            gsn_temp = 24.5 + (random(-15, 15) / 10.0);
-            gsn_hum = 78.2 + (random(-50, 50) / 10.0);
-            gsn_soil = 45 + random(-5, 5);
-            gsn_v_bat = 7.82 - (random(0, 5) / 100.0);
-            gsn_soc = 85 - random(0, 2);
+        if (inPass && (millis() - passTimer > PASS_DURATION)) {
+            inPass = false; passTimer = millis();
+        } else if (!inPass && (millis() - passTimer > LOS_DURATION)) {
+            inPass = true; passTimer = millis();
         }
 
-        // =========================================================
-        // 3. MISSION SCHEDULING & FDIR
-        // =========================================================
-        if (!inPass && random(0, 100) < 5 && payload_state == 0) {
-            payload_state = 1; // Start ROI Imaging
-        } else if (payload_state == 1 && random(0, 100) < 20) {
-            payload_state = 0; // End Imaging
-        }
+        if (!inPass && random(0, 100) < 5 && payload_state == 0) payload_state = 1; 
+        else if (payload_state == 1 && random(0, 100) < 20) payload_state = 0; 
 
-        // FDIR Autonomy overrides
         if (!fdir_override) {
             if (payload_temp > 55.0 || eps_soc < 20.0) payload_state = 0; 
-        } else if (eps_v_bat <= 6.0) {
-            payload_state = 0; // Hardware BMS cutoff
         }
 
-        // =========================================================
-        // 4. DETAILED POWER DYNAMICS
-        // =========================================================
+        // --- SD CARD LOGIC UPDATE ---
+        obc_sd_used += 0.001; // OBC constantly logs tiny TLM data
+        if (obc_sd_used > 100.0) obc_sd_used = 100.0;
+
+        if (payload_state == 1) {
+            payload_sd_used += 0.15; // Spikes when taking images
+            if (payload_sd_used > 100.0) payload_sd_used = 100.0;
+        }
+
         eps_i_in = random(0, 100) > 20 ? random(800, 1200) : 0; 
-        
         if (payload_state == 1) eps_i_payload = random(600, 800); 
         else if (payload_state == 2) eps_i_payload = random(100, 150); 
         else eps_i_payload = 0; 
         
-        if (inPass || in_gsn_pass) eps_i_comms = random(250, 350); 
-        else eps_i_comms = random(40, 60); 
-        
+        eps_i_comms = inPass ? random(250, 350) : random(40, 60);
         eps_i_obc = random(140, 160); 
         eps_i_out = eps_i_payload + eps_i_comms + eps_i_obc; 
         
@@ -143,91 +168,79 @@ void loop() {
         eps_soc += (net_amps * 0.1); 
         eps_soc = constrain(eps_soc, 0.0, 100.0);
         
-        float ideal_voltage = 6.0 + ((eps_soc / 100.0) * 2.4);
-        float voltage_sag = (eps_i_out / 1000.0) * 0.15; 
-        eps_v_bat = ideal_voltage - voltage_sag;
-
+        eps_v_bat = 6.0 + ((eps_soc / 100.0) * 2.4) - ((eps_i_out / 1000.0) * 0.15);
         eps_v_3v3 = 3.3 + (random(-2, 2) / 100.0);
-        eps_v_5v = (payload_state > 0) ? 4.95 + (random(-5, 5) / 100.0) : 5.02;
+        eps_v_5v = payload_state > 0 ? 4.95 + (random(-5, 5) / 100.0) : 5.02;
 
-        // =========================================================
-        // 5. THERMAL DYNAMICS & ENVIRONMENT
-        // =========================================================
         obc_temp = 30.0 + (eps_i_out / 200.0) + random(-1, 2); 
         eps_temp = 20.0 + (abs(net_amps) * 5.0);
-        
-        if (payload_state == 1) payload_temp += 1.5; 
-        else payload_temp -= 2.0; 
-        payload_temp = constrain(payload_temp, 5.0 + random(-2, 2), 80.0);
+        payload_temp += (payload_state == 1) ? 1.5 : -2.0;
+        payload_temp = constrain(payload_temp, 5.0, 80.0);
 
         env_pressure = 1013.2 + (random(-5, 5) / 10.0); 
         env_humidity = 12.0 + (random(-2, 2) / 10.0);   
         gps_alt = 405.5 + (random(-10, 10) / 10.0);     
 
         // =========================================================
-        // 6. TRANSMIT DOWNLINK (CSV FORMAT) VIA USB
+        // TRANSMIT DOWNLINK CSV
         // =========================================================
         if (inPass) {
-            // Simulated Ground Station Header
-            int simulated_gs_rssi = random(-85, -60);
-            Serial.print("TLM_RCV,");
-            Serial.print(simulated_gs_rssi); Serial.print(",");
-            
-            // Start of Satellite Payload
-            Serial.print("TLM,");
-            Serial.print(satelliteUnixTime); Serial.print(",");
-            Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print(",");
-            Serial.print(payload_state); Serial.print(",");
-            Serial.print(obc_temp, 1); Serial.print(",");
-            Serial.print(payload_temp, 1); Serial.print(",");
-            Serial.print(rssi_uplink); Serial.print(",");
-            
-            // EPS (9 items)
-            Serial.print(eps_soc, 1); Serial.print(",");
-            Serial.print(eps_v_bat, 2); Serial.print(",");
-            Serial.print(eps_v_3v3, 2); Serial.print(",");
-            Serial.print(eps_v_5v, 2); Serial.print(",");
-            Serial.print(eps_i_in); Serial.print(",");
-            Serial.print(eps_i_out); Serial.print(",");
-            Serial.print(eps_i_payload); Serial.print(",");
-            Serial.print(eps_i_comms); Serial.print(",");
-            Serial.print(eps_temp, 1); Serial.print(",");
-            
-            // ENV & GPS (3 items)
-            Serial.print(env_pressure, 1); Serial.print(",");
-            Serial.print(env_humidity, 1); Serial.print(",");
-            Serial.print(gps_alt, 1); Serial.print(",");
-            
-            // GSN
-            if (has_cached_gsn) {
-                Serial.print("1,"); // Flag indicating GSN data follows
-                Serial.print(gsn_timestamp); Serial.print(",");
-                Serial.print("GSN-01,");
-                Serial.print(rssi_gsn); Serial.print(",");
-                Serial.print(gsn_temp, 1); Serial.print(",");
-                Serial.print(gsn_hum, 1); Serial.print(",");
-                Serial.print(gsn_soil); Serial.print(",");
-                Serial.print(gsn_smoke); Serial.print(",");
-                Serial.print(gsn_sound); Serial.print(",");
-                Serial.print(gsn_v_bat, 2); Serial.print(",");
-                Serial.print(gsn_soc); Serial.print(",");
-            } else {
-                Serial.print("0,"); // Flag indicating NO GSN data
-            }
+            int gs_rssi = random(-95, -40); 
+            String sat_id = "FG-ALPHA"; 
 
-            // THERMAL SCANNER ARRAY (64 comma-separated values)
+            Serial.print("TLM_RCV,");
+            Serial.print(gs_rssi); Serial.print(",");            // [1]
+            Serial.print(sat_id); Serial.print(",");             // [2]
+            Serial.print(satelliteUnixTime); Serial.print(",");  // [3]
+            Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print(","); // [4]
+            Serial.print(payload_state); Serial.print(",");      // [5]
+            Serial.print(obc_temp); Serial.print(",");           // [6]
+            Serial.print(payload_temp); Serial.print(",");       // [7]
+            Serial.print(rssi_uplink); Serial.print(",");        // [8]
+            Serial.print(eps_soc); Serial.print(",");            // [9]
+            Serial.print(eps_v_bat); Serial.print(",");          // [10]
+            Serial.print(eps_v_3v3); Serial.print(",");          // [11]
+            Serial.print(eps_v_5v); Serial.print(",");           // [12]
+            Serial.print(eps_i_in); Serial.print(",");           // [13]
+            Serial.print(eps_i_out); Serial.print(",");          // [14]
+            Serial.print(eps_i_payload); Serial.print(",");      // [15]
+            Serial.print(eps_i_comms); Serial.print(",");        // [16]
+            Serial.print(eps_temp); Serial.print(",");           // [17]
+            Serial.print(env_pressure); Serial.print(",");       // [18]
+            Serial.print(env_humidity); Serial.print(",");       // [19]
+            Serial.print(gps_alt); Serial.print(",");            // [20]
+            
+            // --- NEW: SD CARD DATA IN CSV ---
+            Serial.print(obc_sd_used); Serial.print(",");        // [21]
+            Serial.print(payload_sd_used); Serial.print(",");    // [22]
+
+            int has_gsn = 1; 
+            Serial.print(has_gsn); Serial.print(",");            // [23]
+            
+            gsn_sd_used += 0.005; // Simulate GSN logging local data
+            if(gsn_sd_used > 100.0) gsn_sd_used = 100.0;
+
+            Serial.print(satelliteUnixTime - random(10, 60)); Serial.print(","); // [24]
+            Serial.print("GSN-01"); Serial.print(",");           // [25]
+            Serial.print(random(-95, -70)); Serial.print(",");   // [26]
+            Serial.print(24.5 + (random(-15, 15)/10.0)); Serial.print(","); // [27]
+            Serial.print(78.2 + (random(-50, 50)/10.0)); Serial.print(","); // [28]
+            Serial.print(45 + random(-5, 5)); Serial.print(","); // [29]
+            Serial.print(random(0, 100) < 5 ? 1 : 0); Serial.print(","); // [30]
+            Serial.print(random(0, 100) < 8 ? 1 : 0); Serial.print(","); // [31]
+            Serial.print(7.82 - (random(0, 5)/100.0)); Serial.print(","); // [32] GSN VBAT
+            Serial.print(85 - random(0, 2)); Serial.print(",");  // [33] GSN SOC
+            
+            Serial.print(gsn_sd_used); Serial.print(",");        // [34] <-- NEW: GSN SD
+
             bool fireDetected = random(0, 100) < 15; 
             int firePixel = random(0, 64); 
-            
             for (int i = 0; i < 64; i++) {
-                float pixelTemp = random(200, 260) / 10.0; 
-                if (fireDetected && i == firePixel) {
-                    pixelTemp = random(700, 900) / 10.0; 
-                }
-                Serial.print(pixelTemp, 1);
+                float pixelTemp = fireDetected && i == firePixel ? random(700, 900)/10.0 : random(200, 260)/10.0;
+                Serial.print(pixelTemp);
                 if (i < 63) Serial.print(",");
             }
-            Serial.println(); // End the CSV row
+            Serial.println(); 
         }
     }
 }

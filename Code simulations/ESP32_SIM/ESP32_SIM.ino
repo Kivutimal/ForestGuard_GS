@@ -9,7 +9,7 @@ unsigned long satelliteUnixTime = 1713170000;
 bool inPass = false;
 unsigned long passTimer = 0;
 const unsigned long PASS_DURATION = 40000;
-const unsigned long LOS_DURATION = 20000;  
+const unsigned long LOS_DURATION = 20000;
 
 float obc_temp = 30.0;      
 float payload_temp = 25.0;  
@@ -38,6 +38,8 @@ float obc_sd_used = 12.4;     // Telemetry logs
 float payload_sd_used = 45.1; // Image storage
 float gsn_sd_used = 8.5;      // GSN Node local storage
 
+// --- NEW: Payload Image Resolution (Height in pixels e.g., 480, 720, 1080, 2160) ---
+int image_resolution = 1080; 
 // ---------------------------------------------------------
 // TELECOMMAND QUEUE
 // ---------------------------------------------------------
@@ -69,6 +71,15 @@ void executeCommand(String cmd) {
     else if (cmd == "PAYLOAD:OFF") {
         payload_state = 0;
         Serial.println("TLM_MSG,Payload powered OFF");
+    }
+// --- NEW: Resolution Parameter Parsing ---
+    else if (cmd.startsWith("RES:")) {
+        // Extract the integer value after "RES:"
+        image_resolution = cmd.substring(4).toInt();
+        
+        Serial.print("TLM_MSG,Payload resolution updated to ");
+        Serial.print(image_resolution);
+        Serial.println("p");
     }
     else if (cmd == "OBC:PING") {
         Serial.println("TLM_MSG,OBC PONG - System nominal");
@@ -213,7 +224,8 @@ void loop() {
             // --- NEW: SD CARD DATA IN CSV ---
             Serial.print(obc_sd_used); Serial.print(",");        // [21]
             Serial.print(payload_sd_used); Serial.print(",");    // [22]
-
+             // --- NEW: Inject Resolution into CSV ---
+            Serial.print(image_resolution); Serial.print(","); 
             int has_gsn = 1; 
             Serial.print(has_gsn); Serial.print(",");            // [23]
             

@@ -345,7 +345,19 @@ if (socket) {
             fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
             fdirBadge.style.borderColor = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1';
         }
-
+        const resBadge = document.getElementById('badge-resolution');
+        if (resBadge && data.resolution !== undefined) {
+            resBadge.innerText = `📐 Res: ${data.resolution}p`;
+            
+            // Color code based on bandwidth impact
+            if (data.resolution <= 480) {
+                resBadge.style.color = '#f1c40f'; // Yellow: Low res, fast
+            } else if (data.resolution >= 2160) {
+                resBadge.style.color = '#e74c3c'; // Red: Heavy bandwidth warning
+            } else {
+                resBadge.style.color = '#66fcf1'; // Cyan: Nominal
+            }
+        }
         const plBadge = document.getElementById('badge-payload-state');
         if (plBadge) {
             if (data.payload_state === 1) {

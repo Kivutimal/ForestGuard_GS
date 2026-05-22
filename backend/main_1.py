@@ -12,7 +12,7 @@ from skyfield.api import load, EarthSatellite, wgs84
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-SERIAL_PORT = 'COM11'
+SERIAL_PORT = 'COM14'
 BAUD_RATE = 115200
 
 line1 = '1 25544U 98067A   24068.52554230  .00015566  00000-0  27929-3 0  9991'
@@ -192,10 +192,10 @@ def read_serial_data():
     session_filename = datetime.datetime.now().strftime("T_%Y%m%d_%H%M.csv")
     session_filepath = os.path.join(BASE_DIR, session_filename)
     
-    # Notice the new SD columns in the header
+    
+#Update Header
     with open(session_filepath, 'a') as f:
-        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,RSSI_UPLINK,SOC,V_BAT,V_3V3,V_5V,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,HAS_GSN,GSN_TS,GSN_NODE,GSN_RSSI,GSN_T,GSN_HUM,GSN_SOIL,GSN_SMOKE,GSN_SOUND,GSN_VBAT,GSN_SOC,GSN_SD_PCT,THERMAL_DATA_64...\n")
-
+        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,RSSI_UPLINK,SOC,V_BAT,V_3V3,V_5V,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,RESOLUTION,HAS_GSN,GSN_TS,GSN_NODE,GSN_RSSI,GSN_T,GSN_HUM,GSN_SOIL,GSN_SMOKE,GSN_SOUND,GSN_VBAT,GSN_SOC,GSN_SD_PCT,THERMAL_DATA_64...\n")
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
         print(f"\n📡 Ground Station Active on {SERIAL_PORT}")
@@ -211,7 +211,7 @@ def read_serial_data():
 
                     try:
                         parts = line.split(',')
-                        if len(parts) >= 24: # Minimum length increased to account for new fields
+                        if len(parts) >= 25: 
                             data = {
                                 "type": "TELEMETRY", "rssi_gs": int(parts[1]), "timestamp": int(parts[3]),
                                 "fdir_mode": parts[4], "payload_state": int(parts[5]), "obc_temp": float(parts[6]),
@@ -219,9 +219,11 @@ def read_serial_data():
                                 "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v": float(parts[12]), "i_in": int(parts[13]), "i_out": int(parts[14]), "i_payload": int(parts[15]), "i_comms": int(parts[16]), "temp": float(parts[17])},
                                 "env": {"pressure": float(parts[18]), "humidity": float(parts[19])},
                                 "gps": {"alt": float(parts[20])},
-                                "sd": {"obc": float(parts[21]), "payload": float(parts[22])} # NEW SD JSON
+                                "sd": {"obc": float(parts[21]), "payload": float(parts[22])},
+                                "compression": int(parts[23]) # <-- NEW DATA MAPPED TO JSON
                             }
-                            idx = 23
+                            
+                            idx = 24 # <-- Shifted from 23 to 24
                             has_gsn = int(parts[idx])
                             idx += 1
                             
@@ -230,7 +232,7 @@ def read_serial_data():
                                     "timestamp": int(parts[idx]), "node_id": parts[idx+1], "rssi": int(parts[idx+2]), 
                                     "temp": float(parts[idx+3]), "hum": float(parts[idx+4]), "soil": int(parts[idx+5]), 
                                     "smoke": int(parts[idx+6]), "sound": int(parts[idx+7]), "v_bat": float(parts[idx+8]), 
-                                    "soc": int(parts[idx+9]), "sd": float(parts[idx+10]) # NEW GSN SD JSON
+                                    "soc": int(parts[idx+9]), "sd": float(parts[idx+10])
                                 }
                                 idx += 11
                                 

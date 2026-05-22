@@ -65,6 +65,24 @@
                     </div>
                     <button class="cmd-btn" style="border-color:var(--success-green); color:var(--success-green);" onclick="sendCommand('IMM:REQ_LATEST')">Req Latest CSV</button>
                 </div>
+                <!-- NEW: Dynamic Image Resolution Selector -->
+                <div style="display:flex; flex-direction:column; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+                        <div>
+                            <strong style="color:#66fcf1;">Payload Image Resolution</strong>
+                            <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Payload • Adjust capture size dynamically</div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:15px; align-items:center;">
+                        <select id="resolution-select" class="payload-select" style="flex:1; margin-bottom:0; background:rgba(0,0,0,0.5); border:1px solid #66fcf1; color:white; padding:8px; border-radius:4px;">
+                            <option value="480">480p (640x480) - Fast Downlink</option>
+                            <option value="720">720p (1280x720) - Standard HD</option>
+                            <option value="1080" selected>1080p (1920x1080) - Full HD</option>
+                            <option value="2160">4K (3840x2160) - Max Detail (Heavy)</option>
+                        </select>
+                        <button class="cmd-btn" style="border-color:#66fcf1; color:#66fcf1;" onclick="sendCommand('IMM:RES:' + document.getElementById('resolution-select').value)">Apply</button>
+                    </div>
+                </div>
             </div>
         </section>
 

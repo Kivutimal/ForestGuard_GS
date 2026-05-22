@@ -98,12 +98,13 @@
             </p>
 
             <div style="background:rgba(0,0,0,0.3); padding:20px; border-radius:8px; border: 1px solid rgba(102,252,241,0.2);">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <div>
-                        <strong style="color:var(--text-silver);">Target Area:</strong> Mau Forest<br>
-                        <span style="font-size:0.75rem; color:#8a9ba8;">Lat: -0.23, Lng: 35.75</span>
+                <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+                    <strong style="color:var(--text-silver);">Target Area Coordinates:</strong>
+                    <div style="display:flex; gap:10px;">
+                        <input type="number" id="target-lat" step="0.0001" placeholder="Lat (e.g. -0.2325)" value="-0.2325" style="flex:1; background:rgba(0,0,0,0.5); border:1px solid #66fcf1; color:white; padding:8px; border-radius:4px;">
+                        <input type="number" id="target-lng" step="0.0001" placeholder="Lng (e.g. 35.5523)" value="35.5523" style="flex:1; background:rgba(0,0,0,0.5); border:1px solid #66fcf1; color:white; padding:8px; border-radius:4px;">
                     </div>
-                    <button class="cmd-btn" id="btn-predict" onclick="predictNextPass()">Calculate Pass</button>
+                    <button class="cmd-btn" id="btn-predict" onclick="predictNextPass()" style="width:100%; margin-top:5px;">Calculate Orbital Pass</button>
                 </div>
 
                 <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:15px 0;">

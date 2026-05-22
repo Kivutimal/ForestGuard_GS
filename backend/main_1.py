@@ -158,11 +158,37 @@ def compare_images():
 
 @app.route('/api/predict_pass', methods=['GET'])
 def predict_pass():
-    t0 = ts.now(); t1 = ts.tt_jd(t0.tt + 1.0) 
-    t, events = satellite.find_events(TARGET_LOCATION, t0, t1, altitude_degrees=10.0)
+    # --- NEW: Retrieve lat/lng from URL, default to Mau Forest if missing ---
+    lat_str = request.args.get('lat', '-0.2325')
+    lng_str = request.args.get('lng', '35.5523')
+    
+    try:
+        target_lat = float(lat_str)
+        target_lng = float(lng_str)
+    except ValueError:
+        return jsonify({"error": "Invalid coordinates provided"}), 400
+        
+    # Generate the dynamic Skyfield target location
+    dynamic_target = wgs84.latlon(target_lat, target_lng)
+    
+    t0 = ts.now()
+    t1 = ts.tt_jd(t0.tt + 1.0) # Search window: Next 24 hours
+    
+    # Calculate flyovers for the specific coordinates
+    t, events = satellite.find_events(dynamic_target, t0, t1, altitude_degrees=10.0)
+    
     for ti, event in zip(t, events):
-        if event == 1: return jsonify({"unix": int(ti.utc_datetime().timestamp()), "date": ti.utc_datetime().strftime('%Y-%m-%d %H:%M:%S UTC'), "target_lat": TARGET_LAT, "target_lng": TARGET_LNG})
-    return jsonify({"error": "No pass found in the next 24 hours"}), 404
+        # Event 1 represents the culmination (Peak highest altitude of the pass)
+        # This is exactly when the camera should fire for the clearest image!
+        if event == 1: 
+            return jsonify({
+                "unix": int(ti.utc_datetime().timestamp()), 
+                "date": ti.utc_datetime().strftime('%Y-%m-%d %H:%M:%S UTC'), 
+                "target_lat": target_lat, 
+                "target_lng": target_lng
+            })
+            
+    return jsonify({"error": "No pass found for these coordinates in the next 24 hours"}), 404
 
 def get_satellite_pos():
     sub = satellite.at(ts.now()).subpoint()

@@ -1304,6 +1304,10 @@ window.predictNextPass = async function() {
     const btnSchedule = document.getElementById('btn-schedule');
     const btnPredict = document.getElementById('btn-predict');
 
+    // --- NEW: Grab the values from the input boxes ---
+    const latInput = document.getElementById('target-lat')?.value || '-0.2325';
+    const lngInput = document.getElementById('target-lng')?.value || '35.5523';
+
     if (!timeDisplay) return;
 
     btnPredict.disabled = true;
@@ -1312,7 +1316,8 @@ window.predictNextPass = async function() {
     timeDisplay.style.color = "#f1c40f";
 
     try {
-        const res = await fetch('/api/predict_pass');
+        // --- NEW: Pass the dynamic coordinates to Python via URL parameters ---
+        const res = await fetch(`/api/predict_pass?lat=${latInput}&lng=${lngInput}`);
         const data = await res.json();
 
         if (data.error) throw new Error(data.error);
@@ -1325,6 +1330,7 @@ window.predictNextPass = async function() {
         if (btnSchedule) {
             btnSchedule.style.opacity = "1";
             btnSchedule.style.pointerEvents = "auto";
+            btnSchedule.innerText = "Schedule Capture"; // Reset text in case used previously
         }
 
     } catch (e) {
@@ -1333,7 +1339,7 @@ window.predictNextPass = async function() {
         alert("Skyfield Error: " + e.message);
     } finally {
         btnPredict.disabled = false;
-        btnPredict.innerText = "Recalculate";
+        btnPredict.innerText = "Calculate Orbital Pass";
     }
 };
 

@@ -336,8 +336,7 @@ if (socket) {
             }, 3000);
         }
 
-        const satDate = new Date(data.timestamp * 1000);
-        const satTimeString = satDate.toLocaleTimeString('en-GB');
+        const satTimeString = String(data.timestamp).replace("_", " ");
 
         const fdirBadge = document.getElementById('badge-fdir-mode');
         if (fdirBadge) {
@@ -427,7 +426,7 @@ if (socket) {
             if (data.gsn) {
                 const gTimeEl = document.getElementById('val-gsn-time');
                 if (gTimeEl && data.gsn.timestamp) {
-                    gTimeEl.innerText = "Recorded: " + new Date(data.gsn.timestamp * 1000).toLocaleTimeString('en-GB');
+                    gTimeEl.innerText = "Recorded: " + String(data.gsn.timestamp).replace("_", " ");
                 }
 
                 const gNode = document.getElementById('val-gsn-node');
@@ -1259,15 +1258,66 @@ window.sendManualCommand = function() {
     }
 };
 
+// ==============================================================================
+// 11.5 EVENT LISTENERS (Control Panel Buttons)
+// ==============================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    
+    // --- 1. Manual Terminal Input ---
     const manualInput = document.getElementById('manual-cmd');
     if (manualInput) {
         manualInput.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                sendManualCommand();
-            }
+            if (e.key === 'Enter') sendManualCommand();
         });
     }
+
+    // --- 2. Subsystem Health Checks ---
+    document.getElementById('btn-ping-obc')?.addEventListener('click', () => {
+        sendCommand('IMM:OBC:PING');
+    });
+    
+    document.getElementById('btn-ping-payload')?.addEventListener('click', () => {
+        sendCommand('IMM:PAYLOAD:PING');
+    });
+
+    document.getElementById('btn-fdir-auto')?.addEventListener('click', () => {
+        sendCommand('IMM:FDIR:AUTO');
+    });
+
+    document.getElementById('btn-fdir-override')?.addEventListener('click', () => {
+        sendCommand('IMM:FDIR:OVERRIDE');
+    });
+
+    document.getElementById('btn-res-apply')?.addEventListener('click', () => {
+        const resVal = document.getElementById('resolution-select').value;
+        sendCommand('IMM:RES:' + resVal);
+    });
+
+    // --- 3. Subsystem Data Retrieval ---
+    document.getElementById('btn-req-tlm')?.addEventListener('click', () => {
+        sendCommand('IMM:REQ_TLM');
+    });
+
+    document.getElementById('btn-req-gsn')?.addEventListener('click', () => {
+        sendCommand('IMM:REQ_GSN');
+    });
+
+    document.getElementById('btn-req-img-list')?.addEventListener('click', () => {
+        sendCommand('IMM:REQ_IMG_LIST');
+    });
+
+    document.getElementById('btn-req-img-dl')?.addEventListener('click', () => {
+        const inputEl = document.getElementById('img-dl-input');
+        const timestamp = inputEl.value.trim();
+        
+        if (timestamp) { 
+            sendCommand('IMM:REQ_IMG:' + timestamp); 
+            inputEl.value = ''; // Clear box after sending
+        } else { 
+            alert('Please enter a timestamp from the catalog first.'); 
+        }
+    });
+
 });
 
 if (socket) {
@@ -1349,8 +1399,22 @@ window.schedulePayload = function() {
         return;
     }
 
-    // New format: SCH:<UNIX_TIME>:<TARGET_COMMAND>
-    const taskCmd = `SCH:${nextPassUnix}:PAYLOAD:CAPTURE,60`;
+    // Grab the normal time string displayed on the screen
+    // Example: "2026-05-31 14:37:00 UTC"
+    let timeStr = document.getElementById('pass-time-display').innerText;
+    
+    // Clean it up to match YYYYMMDD_HHMMSS
+    // 1. Remove " UTC"
+    // 2. Remove dashes and colons
+    // 3. Replace the space with an underscore
+    let formattedTime = timeStr.replace(" UTC", "")
+                               .replace(/-/g, "")
+                               .replace(/:/g, "")
+                               .replace(" ", "_"); 
+    // Result: "20260531_143700"
+
+    // Construct the Normal Time command
+    const taskCmd = `SCH:${formattedTime}:PAYLOAD:CAPTURE,60`;
     sendCommand(taskCmd);
     
     const btnSchedule = document.getElementById('btn-schedule');

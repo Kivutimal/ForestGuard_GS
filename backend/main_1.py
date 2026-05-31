@@ -12,7 +12,7 @@ from skyfield.api import load, EarthSatellite, wgs84
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-SERIAL_PORT = 'COM14'
+SERIAL_PORT = 'COM11'
 BAUD_RATE = 115200
 
 line1 = '1 25544U 98067A   24068.52554230  .00015566  00000-0  27929-3 0  9991'
@@ -239,7 +239,7 @@ def read_serial_data():
                         parts = line.split(',')
                         if len(parts) >= 25: 
                             data = {
-                                "type": "TELEMETRY", "rssi_gs": int(parts[1]), "timestamp": int(parts[3]),
+                                "type": "TELEMETRY", "rssi_gs": int(parts[1]), "timestamp": (parts[3]),
                                 "fdir_mode": parts[4], "payload_state": int(parts[5]), "obc_temp": float(parts[6]),
                                 "payload_temp": float(parts[7]), "rssi_uplink": int(parts[8]),
                                 "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v": float(parts[12]), "i_in": int(parts[13]), "i_out": int(parts[14]), "i_payload": int(parts[15]), "i_comms": int(parts[16]), "temp": float(parts[17])},
@@ -255,7 +255,7 @@ def read_serial_data():
                             
                             if has_gsn == 1 and len(parts) >= idx + 11:
                                 data["gsn"] = {
-                                    "timestamp": int(parts[idx]), "node_id": parts[idx+1], "rssi": int(parts[idx+2]), 
+                                    "timestamp": (parts[idx]), "node_id": parts[idx+1], "rssi": int(parts[idx+2]), 
                                     "temp": float(parts[idx+3]), "hum": float(parts[idx+4]), "soil": int(parts[idx+5]), 
                                     "smoke": int(parts[idx+6]), "sound": int(parts[idx+7]), "v_bat": float(parts[idx+8]), 
                                     "soc": int(parts[idx+9]), "sd": float(parts[idx+10])

@@ -41,13 +41,16 @@
                 Send direct ping commands to individual subsystems to verify heartbeat and responsiveness over the LoRa uplink.
             </p>
 
+            <!-- ========================================== -->
+            <!-- 🩺 SUBSYSTEM HEALTH CHECKS                 -->
+            <!-- ========================================== -->
             <div style="display:grid; gap:15px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div>
                         <strong style="color:var(--neon-cyan);">OBC Subsystem</strong>
                         <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Main ESP32 • Command: IMM:OBC:PING</div>
                     </div>
-                    <button class="cmd-btn" onclick="sendCommand('IMM:OBC:PING')">Ping OBC</button>
+                    <button id="btn-ping-obc" class="cmd-btn">Ping OBC</button>
                 </div>
 
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
@@ -55,17 +58,22 @@
                         <strong style="color:#f1c40f;">Optical Payload</strong>
                         <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: Serial2 • Command: IMM:PAYLOAD:PING</div>
                     </div>
-                    <button class="cmd-btn warning" onclick="sendCommand('IMM:PAYLOAD:PING')">Ping Payload</button>
+                    <button id="btn-ping-payload" class="cmd-btn warning">Ping Payload</button>
                 </div>
-
+                
+                <!-- FDIR Toggle -->
                 <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div>
-                        <strong style="color:var(--success-green);">Downlink Data</strong>
-                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: SD Card • Command: IMM:REQ_LATEST</div>
+                        <strong style="color:#c5c6c7;">FDIR Autonomy Mode</strong>
+                        <div style="font-size:0.75rem; color:#8a9ba8; margin-top:4px;">Target: OBC • Toggle survival brain</div>
                     </div>
-                    <button class="cmd-btn" style="border-color:var(--success-green); color:var(--success-green);" onclick="sendCommand('IMM:REQ_LATEST')">Req Latest CSV</button>
+                    <div style="display:flex; gap:10px;">
+                        <button id="btn-fdir-auto" class="cmd-btn" style="border-color:#66fcf1; color:#66fcf1;">Set AUTO</button>
+                        <button id="btn-fdir-override" class="cmd-btn warning">Set OVERRIDE</button>
+                    </div>
                 </div>
-                <!-- NEW: Dynamic Image Resolution Selector -->
+
+                <!-- Dynamic Image Resolution Selector -->
                 <div style="display:flex; flex-direction:column; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
                         <div>
@@ -80,7 +88,49 @@
                             <option value="1080" selected>1080p (1920x1080) - Full HD</option>
                             <option value="2160">4K (3840x2160) - Max Detail (Heavy)</option>
                         </select>
-                        <button class="cmd-btn" style="border-color:#66fcf1; color:#66fcf1;" onclick="sendCommand('IMM:RES:' + document.getElementById('resolution-select').value)">Apply</button>
+                        <button id="btn-res-apply" class="cmd-btn" style="border-color:#66fcf1; color:#66fcf1;">Apply</button>
+                    </div>
+                </div>
+
+                <!-- ========================================== -->
+                <!-- 💾 SUBSYSTEM DATA RETRIEVAL SECTION        -->
+                <!-- ========================================== -->
+                <div style="margin-top:25px; padding-top:20px; border-top:1px solid rgba(255,255,255,0.1);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <span style="font-size:1.1rem; font-weight:bold; color:var(--text-silver);">💾 Subsystem Data Retrieval</span>
+                    </div>
+                    <p style="font-size:0.75rem; color:#8a9ba8; margin-bottom:15px;">
+                        Target specific SD cards for downlink to prevent LoRa bandwidth congestion.
+                    </p>
+
+                    <div style="display:grid; gap:10px;">
+                        <!-- 1. OBC Telemetry -->
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:10px 15px; border-radius:8px;">
+                            <strong style="color:var(--success-green);">OBC Telemetry (CSV)</strong>
+                            <button id="btn-req-tlm" class="cmd-btn" style="border-color:var(--success-green); color:var(--success-green); padding:4px 10px;">Req TLM</button>
+                        </div>
+
+                        <!-- 2. GSN Data -->
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.3); padding:10px 15px; border-radius:8px;">
+                            <strong style="color:#00ccff;">Ground Sensor Net (CSV)</strong>
+                            <button id="btn-req-gsn" class="cmd-btn" style="border-color:#00ccff; color:#00ccff; padding:4px 10px;">Req GSN</button>
+                        </div>
+
+                        <!-- 3. Payload Images -->
+                        <div style="display:flex; flex-direction:column; gap:12px; background:rgba(0,0,0,0.3); padding:15px; border-radius:8px; border-left: 3px solid #f1c40f;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <strong style="color:#f1c40f;">Payload Image Data</strong>
+                                    <div style="font-size:0.7rem; color:#8a9ba8; margin-top:2px;">Target: Payload SD Card</div>
+                                </div>
+                                <button id="btn-req-img-list" class="cmd-btn warning" style="padding:4px 10px;">Get Catalog</button>
+                            </div>
+                            
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <input type="text" id="img-dl-input" placeholder="Timestamp (e.g. 20260531_143000)" style="flex:1; background:rgba(0,0,0,0.6); border:1px solid rgba(241,196,15,0.5); color:white; padding:6px 10px; border-radius:4px; font-family:'Courier New', monospace; font-size:0.75rem;">
+                                <button id="btn-req-img-dl" class="cmd-btn warning" style="padding:4px 10px;">Download</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

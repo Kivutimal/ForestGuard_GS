@@ -1,15 +1,16 @@
 // ==============================================================================
 // FORESTGUARD ALPHA - LEO SATELLITE SIMULATOR (ESP32 OBC)
-// PHASE 1: SD Card Storage Simulation Added
+// Upgraded with: SD Tracking, Resolution Params, & Normal Time Scheduling
 // ==============================================================================
+#include <time.h> // Required for time string formatting
 
 unsigned long lastLoopTime = 0;
-unsigned long satelliteUnixTime = 1713170000; 
+unsigned long satelliteUnixTime = 1713170000; // Simulated start time
 
 bool inPass = false;
 unsigned long passTimer = 0;
 const unsigned long PASS_DURATION = 40000;
-const unsigned long LOS_DURATION = 20000;
+const unsigned long LOS_DURATION = 20000;  
 
 float obc_temp = 30.0;      
 float payload_temp = 25.0;  
@@ -33,28 +34,29 @@ float gps_alt = 405.5;
 int payload_state = 0; 
 bool fdir_override = false; 
 
-// --- NEW: SD Card Storage Simulators (Percentage 0.0 to 100.0) ---
-float obc_sd_used = 12.4;     // Telemetry logs
-float payload_sd_used = 45.1; // Image storage
-float gsn_sd_used = 8.5;      // GSN Node local storage
+// --- SD Card Storage Simulators ---
+float obc_sd_used = 12.4;     
+float payload_sd_used = 45.1; 
+float gsn_sd_used = 8.5;      
 
-// --- NEW: Payload Image Resolution (Height in pixels e.g., 480, 720, 1080, 2160) ---
+// --- Payload Image Resolution ---
 int image_resolution = 1080; 
+
 // ---------------------------------------------------------
-// TELECOMMAND QUEUE
+// TELECOMMAND QUEUE (Using Normal Time Strings)
 // ---------------------------------------------------------
 #define MAX_TASKS 5
 struct ScheduledTask {
-    unsigned long executeAtUnix;
+    String executeAt; // Matches format YYYYMMDD_HHMMSS
     String command;
     bool isPending;
 };
 ScheduledTask taskQueue[MAX_TASKS];
 
-bool scheduleCommand(unsigned long execTime, String cmd) {
+bool scheduleCommand(String execTime, String cmd) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (!taskQueue[i].isPending) {
-            taskQueue[i].executeAtUnix = execTime;
+            taskQueue[i].executeAt = execTime;
             taskQueue[i].command = cmd;
             taskQueue[i].isPending = true;
             return true;
@@ -72,11 +74,17 @@ void executeCommand(String cmd) {
         payload_state = 0;
         Serial.println("TLM_MSG,Payload powered OFF");
     }
-// --- NEW: Resolution Parameter Parsing ---
+     // ---> NEW: FDIR TOGGLE COMMANDS <---
+    else if (cmd == "FDIR:OVERRIDE") {
+        fdir_override = true;
+        Serial.println("TLM_MSG,FDIR Mode set to OVERRIDE (Manual Control)");
+    }
+    else if (cmd == "FDIR:AUTO") {
+        fdir_override = false;
+        Serial.println("TLM_MSG,FDIR Mode set to AUTO (Autonomous Survival)");
+    }
     else if (cmd.startsWith("RES:")) {
-        // Extract the integer value after "RES:"
         image_resolution = cmd.substring(4).toInt();
-        
         Serial.print("TLM_MSG,Payload resolution updated to ");
         Serial.print(image_resolution);
         Serial.println("p");
@@ -89,8 +97,8 @@ void executeCommand(String cmd) {
     }
     else if (cmd == "REQ_LATEST") {
         Serial.println("TLM_MSG,Queuing SD Card data for downlink");
-        payload_state = 2; // Downlinking mode
-        obc_sd_used = max(0.0f, obc_sd_used - 1.5f); // Simulate clearing some space after DL
+        payload_state = 2; 
+        obc_sd_used = max(0.0f, obc_sd_used - 1.5f); 
     }
     else {
         Serial.print("TLM_MSG,Command not recognized: ");
@@ -109,6 +117,9 @@ void setup() {
 }
 
 void loop() {
+    // =========================================================
+    // A. READ INCOMING UPLINK COMMANDS
+    // =========================================================
     if (Serial.available() > 0) {
         String rawCmd = Serial.readStringUntil('\n');
         rawCmd.trim(); 
@@ -120,12 +131,15 @@ void loop() {
         else if (rawCmd.startsWith("SCH:")) {
             int firstColon = 3;
             int secondColon = rawCmd.indexOf(':', firstColon + 1);
+            
             if (secondColon != -1) {
-                unsigned long execTime = rawCmd.substring(firstColon + 1, secondColon).toInt();
+                // Keep it as a String!
+                String execTimeStr = rawCmd.substring(firstColon + 1, secondColon);
                 String action = rawCmd.substring(secondColon + 1);
-                if (scheduleCommand(execTime, action)) {
-                    Serial.print("TLM_MSG,Command Scheduled for UNIX ");
-                    Serial.println(execTime);
+                
+                if (scheduleCommand(execTimeStr, action)) {
+                    Serial.print("TLM_MSG,Command Scheduled for TIME: ");
+                    Serial.println(execTimeStr);
                 } else {
                     Serial.println("TLM_MSG,ERROR: Task Queue Full");
                 }
@@ -135,15 +149,32 @@ void loop() {
 
     if (millis() - lastLoopTime >= 1000) {
         lastLoopTime = millis();
-        satelliteUnixTime++; 
+        satelliteUnixTime++; // Simulator ticks forward
 
+        // --- NEW: Convert the simulated UNIX time to a Normal Time String ---
+        time_t t = satelliteUnixTime;
+        struct tm *tm_info = gmtime(&t);
+        char timeBuffer[20];
+        // Formats the time as "YYYYMMDD_HHMMSS"
+        strftime(timeBuffer, sizeof(timeBuffer), "%Y%m%d_%H%M%S", tm_info);
+        String currentTimeStr = String(timeBuffer);
+
+        // =========================================================
+        // B. PROCESS SCHEDULED COMMANDS
+        // =========================================================
         for (int i = 0; i < MAX_TASKS; i++) {
-            if (taskQueue[i].isPending && satelliteUnixTime >= taskQueue[i].executeAtUnix) {
-                executeCommand(taskQueue[i].command);
-                taskQueue[i].isPending = false; 
+            if (taskQueue[i].isPending) {
+                // String alphabetical comparison checks if current time has reached target time
+                if (currentTimeStr >= taskQueue[i].executeAt) {
+                    executeCommand(taskQueue[i].command);
+                    taskQueue[i].isPending = false; 
+                }
             }
         }
 
+        // =========================================================
+        // C. ORBIT DYNAMICS & FDIR
+        // =========================================================
         if (inPass && (millis() - passTimer > PASS_DURATION)) {
             inPass = false; passTimer = millis();
         } else if (!inPass && (millis() - passTimer > LOS_DURATION)) {
@@ -157,15 +188,17 @@ void loop() {
             if (payload_temp > 55.0 || eps_soc < 20.0) payload_state = 0; 
         }
 
-        // --- SD CARD LOGIC UPDATE ---
-        obc_sd_used += 0.001; // OBC constantly logs tiny TLM data
+        // --- SD CARD LOGIC ---
+        obc_sd_used += 0.001; 
         if (obc_sd_used > 100.0) obc_sd_used = 100.0;
-
         if (payload_state == 1) {
-            payload_sd_used += 0.15; // Spikes when taking images
+            payload_sd_used += 0.15; 
             if (payload_sd_used > 100.0) payload_sd_used = 100.0;
         }
 
+        // =========================================================
+        // D. POWER & THERMAL SIMULATION
+        // =========================================================
         eps_i_in = random(0, 100) > 20 ? random(800, 1200) : 0; 
         if (payload_state == 1) eps_i_payload = random(600, 800); 
         else if (payload_state == 2) eps_i_payload = random(100, 150); 
@@ -193,7 +226,7 @@ void loop() {
         gps_alt = 405.5 + (random(-10, 10) / 10.0);     
 
         // =========================================================
-        // TRANSMIT DOWNLINK CSV
+        // E. TRANSMIT DOWNLINK CSV
         // =========================================================
         if (inPass) {
             int gs_rssi = random(-95, -40); 
@@ -202,12 +235,13 @@ void loop() {
             Serial.print("TLM_RCV,");
             Serial.print(gs_rssi); Serial.print(",");            // [1]
             Serial.print(sat_id); Serial.print(",");             // [2]
-            Serial.print(satelliteUnixTime); Serial.print(",");  // [3]
+            Serial.print(currentTimeStr); Serial.print(",");  // [3]
             Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print(","); // [4]
             Serial.print(payload_state); Serial.print(",");      // [5]
             Serial.print(obc_temp); Serial.print(",");           // [6]
             Serial.print(payload_temp); Serial.print(",");       // [7]
             Serial.print(rssi_uplink); Serial.print(",");        // [8]
+            
             Serial.print(eps_soc); Serial.print(",");            // [9]
             Serial.print(eps_v_bat); Serial.print(",");          // [10]
             Serial.print(eps_v_3v3); Serial.print(",");          // [11]
@@ -217,33 +251,32 @@ void loop() {
             Serial.print(eps_i_payload); Serial.print(",");      // [15]
             Serial.print(eps_i_comms); Serial.print(",");        // [16]
             Serial.print(eps_temp); Serial.print(",");           // [17]
+            
             Serial.print(env_pressure); Serial.print(",");       // [18]
             Serial.print(env_humidity); Serial.print(",");       // [19]
             Serial.print(gps_alt); Serial.print(",");            // [20]
             
-            // --- NEW: SD CARD DATA IN CSV ---
             Serial.print(obc_sd_used); Serial.print(",");        // [21]
             Serial.print(payload_sd_used); Serial.print(",");    // [22]
-             // --- NEW: Inject Resolution into CSV ---
-            Serial.print(image_resolution); Serial.print(","); 
+            Serial.print(image_resolution); Serial.print(",");   // [23]
+
             int has_gsn = 1; 
-            Serial.print(has_gsn); Serial.print(",");            // [23]
+            Serial.print(has_gsn); Serial.print(",");            // [24]
             
-            gsn_sd_used += 0.005; // Simulate GSN logging local data
+            gsn_sd_used += 0.005; 
             if(gsn_sd_used > 100.0) gsn_sd_used = 100.0;
 
-            Serial.print(satelliteUnixTime - random(10, 60)); Serial.print(","); // [24]
-            Serial.print("GSN-01"); Serial.print(",");           // [25]
-            Serial.print(random(-95, -70)); Serial.print(",");   // [26]
-            Serial.print(24.5 + (random(-15, 15)/10.0)); Serial.print(","); // [27]
-            Serial.print(78.2 + (random(-50, 50)/10.0)); Serial.print(","); // [28]
-            Serial.print(45 + random(-5, 5)); Serial.print(","); // [29]
-            Serial.print(random(0, 100) < 5 ? 1 : 0); Serial.print(","); // [30]
-            Serial.print(random(0, 100) < 8 ? 1 : 0); Serial.print(","); // [31]
-            Serial.print(7.82 - (random(0, 5)/100.0)); Serial.print(","); // [32] GSN VBAT
-            Serial.print(85 - random(0, 2)); Serial.print(",");  // [33] GSN SOC
-            
-            Serial.print(gsn_sd_used); Serial.print(",");        // [34] <-- NEW: GSN SD
+            Serial.print(currentTimeStr); Serial.print(","); // [25]
+            Serial.print("GSN-01"); Serial.print(",");           // [26]
+            Serial.print(random(-95, -70)); Serial.print(",");   // [27]
+            Serial.print(24.5 + (random(-15, 15)/10.0)); Serial.print(","); // [28]
+            Serial.print(78.2 + (random(-50, 50)/10.0)); Serial.print(","); // [29]
+            Serial.print(45 + random(-5, 5)); Serial.print(","); // [30]
+            Serial.print(random(0, 100) < 5 ? 1 : 0); Serial.print(","); // [31]
+            Serial.print(random(0, 100) < 8 ? 1 : 0); Serial.print(","); // [32]
+            Serial.print(7.82 - (random(0, 5)/100.0)); Serial.print(","); // [33]
+            Serial.print(85 - random(0, 2)); Serial.print(",");  // [34]
+            Serial.print(gsn_sd_used); Serial.print(",");        // [35]
 
             bool fireDetected = random(0, 100) < 15; 
             int firePixel = random(0, 64); 

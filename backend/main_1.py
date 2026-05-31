@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import random
 import datetime
+import math
 from flask import Flask, send_from_directory, request, jsonify
 from flask_socketio import SocketIO
 from skyfield.api import load, EarthSatellite, wgs84
@@ -34,27 +35,64 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 ser = None
 
 # ==============================================================================
-# OPENCV HELPERS (Unchanged - Kept for full functionality)
+# OPENCV HELPERS & GEO-REFERENCING
 # ==============================================================================
-def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8):
+def get_regions(mask, img_shape, min_area_frac=0.005, label='', max_regions=8, center_lat=None, center_lng=None):
     H, W = img_shape[:2]
     total = H * W
     kernel = np.ones((9, 9), np.uint8)
     closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    regions =[]
+    regions = []
+    
     for c in contours:
         area = cv2.contourArea(c)
         if area < total * min_area_frac: continue
         x, y, w, h = cv2.boundingRect(c)
+        
+        x_pct = round(x / W, 4)
+        y_pct = round(y / H, 4)
+        w_pct = round(w / W, 4)
+        h_pct = round(h / H, 4)
+        
         extent = area / float(w * h) if (w * h) > 0 else 0
         area_pct = round(area / total * 100, 2)
         confidence = int(min(99, max(45, (extent * 80) + (area_pct * 1.5))))
-        regions.append({"x": round(x/W, 4), "y": round(y/H, 4), "w": round(w/W, 4), "h": round(h/H, 4), "area_pct": area_pct, "label": label, "confidence": confidence})
+        
+        region_data = {
+            "x": x_pct, "y": y_pct, "w": w_pct, "h": h_pct, 
+            "area_pct": area_pct, "label": label, "confidence": confidence
+        }
+        
+        # --- NEW: PIXEL TO REAL-WORLD COORDINATE MATH ---
+        if center_lat is not None and center_lng is not None:
+            # Assume the image covers exactly a 5km x 5km square on Earth
+            image_width_meters = 5000.0 
+            
+            # Find the center of this specific bounding box
+            cx_pct = x_pct + (w_pct / 2.0)
+            cy_pct = y_pct + (h_pct / 2.0)
+            
+            # Distance from the exact center of the image (0.5, 0.5)
+            dx_pct = cx_pct - 0.5
+            dy_pct = 0.5 - cy_pct # Invert Y: smaller Y means North
+            
+            dx_meters = dx_pct * image_width_meters
+            dy_meters = dy_pct * image_width_meters
+            
+            # 1 degree of Latitude ~ 111,139 meters. Longitude changes based on Lat.
+            d_lat = dy_meters / 111139.0
+            d_lng = dx_meters / (111139.0 * math.cos(math.radians(center_lat)))
+            
+            region_data["lat"] = round(center_lat + d_lat, 5)
+            region_data["lng"] = round(center_lng + d_lng, 5)
+            
+        regions.append(region_data)
+        
     regions.sort(key=lambda r: r["area_pct"], reverse=True)
     return regions[:max_regions]
 
-def cv_analyze_rgb(img_bgr):
+def cv_analyze_rgb(img_bgr, center_lat=None, center_lng=None):
     H, W = img_bgr.shape[:2]
     total = H * W
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
@@ -76,7 +114,14 @@ def cv_analyze_rgb(img_bgr):
     fire_risk = 'critical' if burn_pct > 12 else 'high' if burn_pct > 5 else 'medium' if burn_pct > 2 else 'low'
     defor_risk = 'critical' if bare_pct > 40 or edge_density > 18 else 'high' if bare_pct > 20 or edge_density > 12 else 'medium' if bare_pct > 8 else 'low'
         
-    return dict(vegetation_pct=veg_pct, bare_pct=bare_pct, burn_pct=burn_pct, ndvi_proxy=mean_ndvi, edge_density=edge_density, health_score=health, health_grade=grade, fire_risk=fire_risk, deforestation_risk=defor_risk, bare_regions=get_regions(bare_mask, img_bgr.shape, label='Cleared/Deforested'), burn_regions=get_regions(burn_mask, img_bgr.shape, label='Burn Scar'))
+    return dict(
+        vegetation_pct=veg_pct, bare_pct=bare_pct, burn_pct=burn_pct, 
+        ndvi_proxy=mean_ndvi, edge_density=edge_density, 
+        health_score=health, health_grade=grade, 
+        fire_risk=fire_risk, deforestation_risk=defor_risk, 
+        bare_regions=get_regions(bare_mask, img_bgr.shape, label='Cleared/Deforested', center_lat=center_lat, center_lng=center_lng), 
+        burn_regions=get_regions(burn_mask, img_bgr.shape, label='Burn Scar', center_lat=center_lat, center_lng=center_lng)
+    )
 
 def cv_detect_roads(img_bgr):
     H, W = img_bgr.shape[:2]
@@ -143,9 +188,49 @@ def serve_sample(filename): return send_from_directory(SAMPLES_DIR, filename)
 @app.route('/api/analyze', methods=['POST'])
 def analyze_image():
     req_data = request.get_json()
-    img = cv2.imread(os.path.join(SAMPLES_DIR, os.path.basename(req_data.get('filename', ''))))
-    if img is None: return jsonify({"error": "Could not decode image"}), 500
-    res = cv_analyze_rgb(img); res.update(cv_detect_roads(img)); res["filename"] = req_data.get('filename', '')
+    filename = req_data.get('filename', '')
+    
+    # 1. FIND THE IMAGE TIME (Hybrid Logic)
+    time_str = None
+    if filename.startswith("IMG_"):
+        # Real payload image format: IMG_20260531_143000.jpg
+        time_str = filename.replace("IMG_", "").replace(".jpg", "")
+    else:
+        # Downloaded sample format: check catalog.json
+        catalog_path = os.path.join(SAMPLES_DIR, 'catalog.json')
+        if os.path.exists(catalog_path):
+            with open(catalog_path, 'r') as f:
+                catalog = json.load(f)
+                if filename in catalog:
+                    time_str = catalog[filename]
+
+    # 2. GET IMAGE CENTER COORDINATE FROM SKYFIELD
+    center_lat, center_lng = None, None
+    if time_str:
+        try:
+            dt = datetime.datetime.strptime(time_str, "%Y%m%d_%H%M%S")
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+            t = ts.from_datetime(dt)
+            subpoint = satellite.at(t).subpoint()
+            center_lat = round(subpoint.latitude.degrees, 4)
+            center_lng = round(subpoint.longitude.degrees, 4)
+        except Exception as e:
+            print(f"Geolocation error: {e}")
+
+    # 3. RUN OPENCV ANALYSIS (Pass the center coords to generate AOIs)
+    img = cv2.imread(os.path.join(SAMPLES_DIR, os.path.basename(filename)))
+    if img is None: 
+        return jsonify({"error": "Could not decode image"}), 500
+        
+    res = cv_analyze_rgb(img, center_lat=center_lat, center_lng=center_lng)
+    res.update(cv_detect_roads(img))
+    res["filename"] = filename
+    
+    if center_lat and center_lng:
+        res["image_center_lat"] = center_lat
+        res["image_center_lng"] = center_lng
+        res["capture_time"] = time_str
+        
     return jsonify(res)
 
 @app.route('/api/compare', methods=['POST'])
@@ -211,71 +296,109 @@ def handle_command(data):
         socketio.emit('terminal_log', {"msg": "ERROR: Serial Port Not Open", "type": "error"})
 
 # ==============================================================================
-# SERIAL THREAD (Data Downlink)
+# SERIAL THREAD (Data Downlink & Routing)
 # ==============================================================================
 def read_serial_data():
     global ser
-    session_filename = datetime.datetime.now().strftime("T_%Y%m%d_%H%M.csv")
-    session_filepath = os.path.join(BASE_DIR, session_filename)
     
+    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    tlm_filepath = os.path.join(BASE_DIR, f"TLM_{now_str}.csv")
+    gsn_filepath = os.path.join(BASE_DIR, f"GSN_{now_str}.csv")
     
-#Update Header
-    with open(session_filepath, 'a') as f:
-        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,RSSI_UPLINK,SOC,V_BAT,V_3V3,V_5V,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,RESOLUTION,HAS_GSN,GSN_TS,GSN_NODE,GSN_RSSI,GSN_T,GSN_HUM,GSN_SOIL,GSN_SMOKE,GSN_SOUND,GSN_VBAT,GSN_SOC,GSN_SD_PCT,THERMAL_DATA_64...\n")
+    with open(tlm_filepath, 'a') as f:
+        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,SAT_RX_RSSI,SOC,V_BAT,V_3V3,V_5V,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,RESOLUTION,THERMAL_DATA_64...\n")
+
+    with open(gsn_filepath, 'a') as f:
+        f.write("PACKET_TYPE,TIMESTAMP,NODE_ID,RSSI,TEMP,HUMIDITY,SOIL,SMOKE,SOUND,V_BAT,SOC,SD_PCT\n")
+
     try:
         ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
         print(f"\n📡 Ground Station Active on {SERIAL_PORT}")
-        print(f"📁 Saving telemetry to: {session_filename}")
         
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
                 
+                # --- ROUTE 1: TELEMETRY DATA ---
                 if line.startswith("TLM_RCV,"):
-                    with open(session_filepath, 'a') as f:
-                        f.write(line + "\n")
+                    
+                    simulated_gs_rssi = random.randint(-95, -40)
+                    line_with_rssi = line.replace("TLM_RCV,", f"TLM_RCV,{simulated_gs_rssi},", 1)
+
+                    with open(tlm_filepath, 'a') as f:
+                        f.write(line_with_rssi + "\n")
 
                     try:
-                        parts = line.split(',')
-                        if len(parts) >= 25: 
+                        parts = line_with_rssi.split(',')
+                        if len(parts) >= 23: 
                             data = {
-                                "type": "TELEMETRY", "rssi_gs": int(parts[1]), "timestamp": (parts[3]),
-                                "fdir_mode": parts[4], "payload_state": int(parts[5]), "obc_temp": float(parts[6]),
-                                "payload_temp": float(parts[7]), "rssi_uplink": int(parts[8]),
+                                "type": "TELEMETRY", 
+                                "rssi_gs": int(parts[1]), 
+                                "timestamp": parts[3], 
+                                "fdir_mode": parts[4], 
+                                "payload_state": int(parts[5]), 
+                                "obc_temp": float(parts[6]),
+                                "payload_temp": float(parts[7]), 
+                                "rssi_uplink": int(parts[8]), 
                                 "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v": float(parts[12]), "i_in": int(parts[13]), "i_out": int(parts[14]), "i_payload": int(parts[15]), "i_comms": int(parts[16]), "temp": float(parts[17])},
                                 "env": {"pressure": float(parts[18]), "humidity": float(parts[19])},
                                 "gps": {"alt": float(parts[20])},
                                 "sd": {"obc": float(parts[21]), "payload": float(parts[22])},
-                                "compression": int(parts[23]) # <-- NEW DATA MAPPED TO JSON
+                                "resolution": int(parts[23]) 
                             }
                             
-                            idx = 24 # <-- Shifted from 23 to 24
-                            has_gsn = int(parts[idx])
-                            idx += 1
+                            idx = 24 
                             
-                            if has_gsn == 1 and len(parts) >= idx + 11:
-                                data["gsn"] = {
-                                    "timestamp": (parts[idx]), "node_id": parts[idx+1], "rssi": int(parts[idx+2]), 
-                                    "temp": float(parts[idx+3]), "hum": float(parts[idx+4]), "soil": int(parts[idx+5]), 
-                                    "smoke": int(parts[idx+6]), "sound": int(parts[idx+7]), "v_bat": float(parts[idx+8]), 
-                                    "soc": int(parts[idx+9]), "sd": float(parts[idx+10])
-                                }
-                                idx += 11
-                                
                             if len(parts) >= idx + 64:
                                 data["thermal"] =[float(p) for p in parts[idx:idx+64]]
                                 
                             lat, lng = get_satellite_pos()
                             data["lat"], data["lng"] = lat, lng
                             socketio.emit('telemetry_update', data)
-                    except Exception as e: print(f"Parse error: {e}")
+                    except Exception as e: 
+                        print(f"Parse error: {e}")
                 
+                # --- ROUTE 2: GSN HISTORICAL DATA REQUEST ---
+                elif line.startswith("GSN_RCV,"):
+                    with open(gsn_filepath, 'a') as f:
+                        f.write(line + "\n")
+                    
+                    try:
+                        parts = line.split(',')
+                        if len(parts) >= 12:
+                            gsn_data = {
+                                "type": "GSN_UPDATE",
+                                "gsn": {
+                                    "timestamp": parts[1],
+                                    "node_id": parts[2],
+                                    "rssi": int(parts[3]),
+                                    "temp": float(parts[4]),
+                                    "hum": float(parts[5]),
+                                    "soil": int(parts[6]),
+                                    "smoke": int(parts[7]),
+                                    "sound": int(parts[8]),
+                                    "v_bat": float(parts[9]),
+                                    "soc": int(parts[10]),
+                                    "sd": float(parts[11])
+                                }
+                            }
+                            socketio.emit('telemetry_update', gsn_data)
+                    except Exception as e:
+                        print(f"GSN Parse error: {e}")
+                
+                # --- ROUTE 3: IMAGE CATALOG REQUEST ---
+                elif line.startswith("IMG_LIST:"):
+                    files = line.split(":", 1)[1]
+                    socketio.emit('terminal_log', {"msg": f"📸 PAYLOAD CATALOG: {files}", "type": "rx"})
+
+                # --- ROUTE 4: STANDARD OBC ACKNOWLEDGMENTS ---
                 elif line.startswith("TLM_MSG,"):
                     msg = line.split("TLM_MSG,")[1]
                     socketio.emit('terminal_log', {"msg": f"OBC ACK: {msg}", "type": "rx"})
                     
             socketio.sleep(0.01)
-    except Exception as e: print(f"\n❌ SERIAL ERROR: {e}")
+    except Exception as e: 
+        print(f"\n❌ SERIAL ERROR: {e}")
 
 if __name__ == '__main__':
     socketio.start_background_task(read_serial_data)

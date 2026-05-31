@@ -312,6 +312,7 @@ function checkGSNAnomalies(gsn) {
 if (socket) {
     socket.on('telemetry_update', (data) => {
         
+        // --- 1. ALWAYS RUN PASS WATCHDOG ---
         const passBadge = document.getElementById('pass-status-badge');
         if(passBadge) {
             passBadge.className = 'badge nominal';
@@ -336,83 +337,104 @@ if (socket) {
             }, 3000);
         }
 
-        const satTimeString = String(data.timestamp).replace("_", " ");
+        // ========================================================
+        // ROUTE A: SATELLITE TELEMETRY PACKET
+        // ========================================================
+        if (data.type === 'TELEMETRY') {
+            const satTimeString = String(data.timestamp).replace("_", " ");
 
-        const fdirBadge = document.getElementById('badge-fdir-mode');
-        if (fdirBadge) {
-            fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
-            fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
-            fdirBadge.style.borderColor = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1';
-        }
-        const resBadge = document.getElementById('badge-resolution');
-        if (resBadge && data.resolution !== undefined) {
-            resBadge.innerText = `📐 Res: ${data.resolution}p`;
-            
-            // Color code based on bandwidth impact
-            if (data.resolution <= 480) {
-                resBadge.style.color = '#f1c40f'; // Yellow: Low res, fast
-            } else if (data.resolution >= 2160) {
-                resBadge.style.color = '#e74c3c'; // Red: Heavy bandwidth warning
-            } else {
-                resBadge.style.color = '#66fcf1'; // Cyan: Nominal
+            // --- Badges ---
+            const fdirBadge = document.getElementById('badge-fdir-mode');
+            if (fdirBadge) {
+                fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
+                fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
+                fdirBadge.style.borderColor = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1';
             }
-        }
-        const plBadge = document.getElementById('badge-payload-state');
-        if (plBadge) {
-            if (data.payload_state === 1) {
-                plBadge.innerText = '📸 Payload: IMAGING'; plBadge.style.color = '#f1c40f';
-            } else if (data.payload_state === 2) {
-                plBadge.innerText = '📡 Payload: DOWNLINKING'; plBadge.style.color = '#66fcf1';
-            } else {
-                plBadge.innerText = '💤 Payload: IDLE/OFF'; plBadge.style.color = '#c5c6c7';
+            const resBadge = document.getElementById('badge-resolution');
+            if (resBadge && data.resolution !== undefined) {
+                resBadge.innerText = `📐 Res: ${data.resolution}p`;
+                if (data.resolution <= 480) resBadge.style.color = '#f1c40f'; 
+                else if (data.resolution >= 2160) resBadge.style.color = '#e74c3c'; 
+                else resBadge.style.color = '#66fcf1'; 
             }
-        }
-        
-        let current_gsn_rssi = data.gsn ? data.gsn.rssi : (latestTelemetryCache[2] !== "--" ? latestTelemetryCache[2] : 0);
+            const plBadge = document.getElementById('badge-payload-state');
+            if (plBadge) {
+                if (data.payload_state === 1) {
+                    plBadge.innerText = '📸 Payload: IMAGING'; plBadge.style.color = '#f1c40f';
+                } else if (data.payload_state === 2) {
+                    plBadge.innerText = '📡 Payload: DOWNLINKING'; plBadge.style.color = '#66fcf1';
+                } else {
+                    plBadge.innerText = '💤 Payload: IDLE/OFF'; plBadge.style.color = '#c5c6c7';
+                }
+            }
 
-        if (data.eps) {
-            let i_payload = data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
-            let i_comms = data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
-            let i_obc = Math.max(0, data.eps.i_out - i_payload - i_comms);
-            
+            // --- Cache & EPS ---
             latestTelemetryCache[0] = data.rssi_gs;
             latestTelemetryCache[1] = data.rssi_uplink;
-            latestTelemetryCache[2] = current_gsn_rssi;
             latestTelemetryCache[3] = data.obc_temp.toFixed(1);
             latestTelemetryCache[4] = data.payload_temp.toFixed(1);
-            latestTelemetryCache[5] = data.eps.temp.toFixed(1);
-            latestTelemetryCache[6] = data.eps.soc.toFixed(1);
-            latestTelemetryCache[7] = data.eps.i_in;
-            latestTelemetryCache[8] = data.eps.i_out;
-            latestTelemetryCache[9] = data.eps.v_bat.toFixed(2);
-            latestTelemetryCache[10] = i_payload;
-            latestTelemetryCache[11] = i_comms;
-            latestTelemetryCache[12] = i_obc;
-            
-            if (data.env) {
-                const prEl = document.getElementById('val-env-press');
-                const huEl = document.getElementById('val-env-hum');
-                if (prEl) prEl.innerText = data.env.pressure.toFixed(1) + ' hPa';
-                if (huEl) huEl.innerText = data.env.humidity.toFixed(1) + ' %';
-            }
-            
-            if (data.gps) {
-                const altEl = document.getElementById('val-gps-alt');
-                if (altEl) altEl.innerText = data.gps.alt.toFixed(1) + ' km';
-            }
-            
-            if (data.lat && data.lng) {
-                const latEl = document.getElementById('val-gps-lat');
-                const lngEl = document.getElementById('val-gps-lng');
-                if (latEl) latEl.innerText = data.lat.toFixed(4) + '°';
-                if (lngEl) lngEl.innerText = data.lng.toFixed(4) + '°';
+
+            if (data.eps) {
+                let i_payload = data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
+                let i_comms = data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
+                let i_obc = Math.max(0, data.eps.i_out - i_payload - i_comms);
+                
+                latestTelemetryCache[5] = data.eps.temp.toFixed(1);
+                latestTelemetryCache[6] = data.eps.soc.toFixed(1);
+                latestTelemetryCache[7] = data.eps.i_in;
+                latestTelemetryCache[8] = data.eps.i_out;
+                latestTelemetryCache[9] = data.eps.v_bat.toFixed(2);
+                latestTelemetryCache[10] = i_payload;
+                latestTelemetryCache[11] = i_comms;
+                latestTelemetryCache[12] = i_obc;
+
+                document.getElementById('val-eps-soc').innerText = data.eps.soc.toFixed(1) + '%';
+                document.getElementById('val-eps-iin').innerText = data.eps.i_in + ' mA';
+                document.getElementById('val-eps-iout').innerText = data.eps.i_out + ' mA';
+                document.getElementById('val-eps-vbat').innerText = data.eps.v_bat.toFixed(2) + ' V';
+                document.getElementById('val-eps-3v3').innerText = data.eps.v_3v3.toFixed(2) + ' V';
+                document.getElementById('val-eps-5v').innerText = data.eps.v_5v.toFixed(2) + ' V';
+                document.getElementById('val-eps-ipayload').innerText = i_payload + ' mA';
+                document.getElementById('val-eps-icomms').innerText = i_comms + ' mA';
+                document.getElementById('val-eps-iobc').innerText = i_obc + ' mA';
+
+                const net = data.eps.i_in - data.eps.i_out;
+                const stateEl = document.getElementById('val-eps-state');
+                if (stateEl) {
+                    if (net > 0) {
+                        stateEl.innerHTML = `🔋 CHARGING (+${net} mA)`; stateEl.style.color = 'var(--success-green)';
+                    } else if (net < 0) {
+                        stateEl.innerHTML = `⚠️ DISCHARGING (${net} mA)`; stateEl.style.color = 'var(--danger-red)';
+                    } else {
+                        stateEl.innerHTML = `⚖️ BALANCED (0 mA)`; stateEl.style.color = '#f1c40f';
+                    }
+                }
             }
 
-            // === 💾 SD CARD LOGIC UPDATES ===
+            if (data.env) {
+                latestTelemetryCache[13] = data.env.pressure.toFixed(1);
+                latestTelemetryCache[14] = data.env.humidity.toFixed(1);
+                document.getElementById('val-env-press').innerText = data.env.pressure.toFixed(1) + ' hPa';
+                document.getElementById('val-env-hum').innerText = data.env.humidity.toFixed(1) + ' %';
+            }
+            if (data.gps) {
+                latestTelemetryCache[15] = data.gps.alt.toFixed(1);
+                document.getElementById('val-gps-alt').innerText = data.gps.alt.toFixed(1) + ' km';
+            }
+            if (data.lat && data.lng) {
+                document.getElementById('val-gps-lat').innerText = data.lat.toFixed(4) + '°';
+                document.getElementById('val-gps-lng').innerText = data.lng.toFixed(4) + '°';
+                
+                if (satelliteMarker) {
+                    const pos =[data.lat, data.lng];
+                    satelliteMarker.setLatLng(pos);
+                    orbitPath.addLatLng(pos);
+                    map.panTo(pos, { animate: true, duration: 1.0 });
+                }
+            }
             if (data.sd) {
                 const sdObcEl = document.getElementById('val-sd-obc');
                 const sdPayEl = document.getElementById('val-sd-pay');
-                
                 if (sdObcEl) {
                     sdObcEl.innerText = data.sd.obc.toFixed(1) + '%';
                     sdObcEl.style.color = data.sd.obc > 85 ? 'var(--danger-red)' : '#66fcf1';
@@ -422,39 +444,79 @@ if (socket) {
                     sdPayEl.style.color = data.sd.payload > 85 ? 'var(--danger-red)' : '#66fcf1';
                 }
             }
-            
+
+            checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env);
+            triggerEPSPulse();
+
+            // --- CHART PUSH (ONLY during Telemetry updates to prevent zigzag lines) ---
+            if (window.signalChart) {
+                window.signalChart.data.labels.push(satTimeString);
+                window.signalChart.data.datasets[0].data.push(data.rssi_gs);
+                window.signalChart.data.datasets[1].data.push(data.rssi_uplink);
+                // Pull GSN RSSI from the cache
+                window.signalChart.data.datasets[2].data.push(latestTelemetryCache[2] !== "--" ? latestTelemetryCache[2] : 0); 
+                window.signalChart.data.datasets[3].data.push(data.obc_temp);
+                window.signalChart.data.datasets[4].data.push(data.payload_temp);
+                window.signalChart.data.datasets[5].data.push(data.eps ? data.eps.temp : 0);
+                window.signalChart.data.datasets[6].data.push(data.eps ? data.eps.soc : 0);
+                window.signalChart.data.datasets[7].data.push(data.eps ? data.eps.i_in : 0);
+                window.signalChart.data.datasets[8].data.push(data.eps ? data.eps.i_out : 0);
+                window.signalChart.data.datasets[9].data.push(data.eps ? data.eps.v_bat : 0);
+                
+                let i_p = data.eps && data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
+                let i_c = data.eps && data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
+                let i_o = data.eps ? Math.max(0, data.eps.i_out - i_p - i_c) : 0;
+                
+                window.signalChart.data.datasets[10].data.push(i_p);
+                window.signalChart.data.datasets[11].data.push(i_c);
+                window.signalChart.data.datasets[12].data.push(i_o);
+                window.signalChart.data.datasets[13].data.push(data.env ? data.env.pressure : 0);
+                window.signalChart.data.datasets[14].data.push(data.env ? data.env.humidity : 0);
+                window.signalChart.data.datasets[15].data.push(data.gps ? data.gps.alt : 0);
+
+                if (window.signalChart.data.labels.length > 20) {
+                    window.signalChart.data.labels.shift();
+                    window.signalChart.data.datasets.forEach(ds => ds.data.shift());
+                }
+                window.signalChart.update();
+            }
+
+            if (data.thermal) {
+                updateThermalFromTelemetry(data.thermal);
+            }
+        }
+        
+        // ========================================================
+        // ROUTE B: GROUND SENSOR NETWORK PACKET
+        // ========================================================
+        else if (data.type === 'GSN_UPDATE') {
             if (data.gsn) {
+                // Update Cache so the Chart picks it up on the next tick
+                latestTelemetryCache[2] = data.gsn.rssi;
+
                 const gTimeEl = document.getElementById('val-gsn-time');
                 if (gTimeEl && data.gsn.timestamp) {
                     gTimeEl.innerText = "Recorded: " + String(data.gsn.timestamp).replace("_", " ");
                 }
 
-                const gNode = document.getElementById('val-gsn-node');
-                const gSmoke = document.getElementById('val-gsn-smoke');
-                const gSound = document.getElementById('val-gsn-sound');
-                const gSoil = document.getElementById('val-gsn-soil');
-                const gTemp = document.getElementById('val-gsn-temp');
-                const gHum = document.getElementById('val-gsn-hum');
-                const gBat = document.getElementById('val-gsn-bat');
+                document.getElementById('val-gsn-node').innerText = `NODE: ${data.gsn.node_id}`;
                 
-                if (gNode) gNode.innerText = `NODE: ${data.gsn.node_id}`;
-                if (gSmoke) {
-                    gSmoke.innerText = data.gsn.smoke === 1 ? "DETECTED" : "CLEAR";
-                    gSmoke.style.color = data.gsn.smoke === 1 ? "var(--danger-red)" : "var(--success-green)";
-                }
-                if (gSound) {
-                    gSound.innerText = data.gsn.sound === 1 ? "DETECTED" : "CLEAR";
-                    gSound.style.color = data.gsn.sound === 1 ? "#f1c40f" : "var(--success-green)";
-                }
-                if (gSoil) gSoil.innerText = data.gsn.soil + '%';
-                if (gTemp) gTemp.innerText = data.gsn.temp.toFixed(1) + '°C';
-                if (gHum) gHum.innerText = data.gsn.hum.toFixed(1) + '%';
-                if (gBat) {
-                    gBat.innerText = data.gsn.soc + '%';
-                    gBat.style.color = data.gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
-                }
+                const gSmoke = document.getElementById('val-gsn-smoke');
+                gSmoke.innerText = data.gsn.smoke === 1 ? "DETECTED" : "CLEAR";
+                gSmoke.style.color = data.gsn.smoke === 1 ? "var(--danger-red)" : "var(--success-green)";
+                
+                const gSound = document.getElementById('val-gsn-sound');
+                gSound.innerText = data.gsn.sound === 1 ? "DETECTED" : "CLEAR";
+                gSound.style.color = data.gsn.sound === 1 ? "#f1c40f" : "var(--success-green)";
+                
+                document.getElementById('val-gsn-soil').innerText = data.gsn.soil + '%';
+                document.getElementById('val-gsn-temp').innerText = data.gsn.temp.toFixed(1) + '°C';
+                document.getElementById('val-gsn-hum').innerText = data.gsn.hum.toFixed(1) + '%';
+                
+                const gBat = document.getElementById('val-gsn-bat');
+                gBat.innerText = data.gsn.soc + '%';
+                gBat.style.color = data.gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
 
-                // === 💾 GSN SD CARD ===
                 const sdGsnEl = document.getElementById('val-sd-gsn');
                 if (sdGsnEl && data.gsn.sd !== undefined) {
                     sdGsnEl.innerText = data.gsn.sd.toFixed(1) + '%';
@@ -471,94 +533,15 @@ if (socket) {
                         gsnIconDiv.innerText = '🌳';
                     }
                 }
+
+                checkGSNAnomalies(data.gsn);
             }
-            
-            const socEl = document.getElementById('val-eps-soc');
-            const iinEl = document.getElementById('val-eps-iin');
-            const ioutEl = document.getElementById('val-eps-iout');
-            const vbatEl = document.getElementById('val-eps-vbat');
-            const v3v3El = document.getElementById('val-eps-3v3');
-            const v5vEl = document.getElementById('val-eps-5v');
-            const plDrawEl = document.getElementById('val-eps-ipayload');
-            const cmDrawEl = document.getElementById('val-eps-icomms');
-            const obDrawEl = document.getElementById('val-eps-iobc');
-
-            if (socEl) socEl.innerText = data.eps.soc.toFixed(1) + '%';
-            if (iinEl) iinEl.innerText = data.eps.i_in + ' mA';
-            if (ioutEl) ioutEl.innerText = data.eps.i_out + ' mA';
-            if (vbatEl) vbatEl.innerText = data.eps.v_bat.toFixed(2) + ' V';
-            if (v3v3El) v3v3El.innerText = data.eps.v_3v3.toFixed(2) + ' V';
-            if (v5vEl) v5vEl.innerText = data.eps.v_5v.toFixed(2) + ' V';
-            if (plDrawEl) plDrawEl.innerText = i_payload + ' mA';
-            if (cmDrawEl) cmDrawEl.innerText = i_comms + ' mA';
-            if (obDrawEl) obDrawEl.innerText = i_obc + ' mA';
-
-            const net = data.eps.i_in - data.eps.i_out;
-            const stateEl = document.getElementById('val-eps-state');
-            
-            if (stateEl) {
-                if (net > 0) {
-                    stateEl.innerHTML = `🔋 CHARGING (+${net} mA)`;
-                    stateEl.style.color = 'var(--success-green)';
-                } else if (net < 0) {
-                    stateEl.innerHTML = `⚠️ DISCHARGING (${net} mA)`;
-                    stateEl.style.color = 'var(--danger-red)';
-                } else {
-                    stateEl.innerHTML = `⚖️ BALANCED (0 mA)`;
-                    stateEl.style.color = '#f1c40f';
-                }
-            }
-
-            checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env);
-            checkGSNAnomalies(data.gsn);
-            triggerEPSPulse();
-            
-            const group = document.getElementById('chart-group')?.value;
-            const metricName = document.getElementById('chart-metric')?.value;
-            if(group && metricName) updateLiveTextValueDisplay(group, metricName);
         }
 
-        if (window.signalChart) {
-            window.signalChart.data.labels.push(satTimeString);
-            window.signalChart.data.datasets[0].data.push(data.rssi_gs);
-            window.signalChart.data.datasets[1].data.push(data.rssi_uplink);
-            window.signalChart.data.datasets[2].data.push(current_gsn_rssi); 
-            window.signalChart.data.datasets[3].data.push(data.obc_temp);
-            window.signalChart.data.datasets[4].data.push(data.payload_temp);
-            window.signalChart.data.datasets[5].data.push(data.eps ? data.eps.temp : 0);
-            window.signalChart.data.datasets[6].data.push(data.eps ? data.eps.soc : 0);
-            window.signalChart.data.datasets[7].data.push(data.eps ? data.eps.i_in : 0);
-            window.signalChart.data.datasets[8].data.push(data.eps ? data.eps.i_out : 0);
-            window.signalChart.data.datasets[9].data.push(data.eps ? data.eps.v_bat : 0);
-            
-            let i_p = data.eps && data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
-            let i_c = data.eps && data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
-            let i_o = data.eps ? Math.max(0, data.eps.i_out - i_p - i_c) : 0;
-            
-            window.signalChart.data.datasets[10].data.push(i_p);
-            window.signalChart.data.datasets[11].data.push(i_c);
-            window.signalChart.data.datasets[12].data.push(i_o);
-            window.signalChart.data.datasets[13].data.push(data.env ? data.env.pressure : 0);
-            window.signalChart.data.datasets[14].data.push(data.env ? data.env.humidity : 0);
-            window.signalChart.data.datasets[15].data.push(data.gps ? data.gps.alt : 0);
-
-            if (window.signalChart.data.labels.length > 20) {
-                window.signalChart.data.labels.shift();
-                window.signalChart.data.datasets.forEach(ds => ds.data.shift());
-            }
-            window.signalChart.update();
-        }
-
-        if (data.lat && data.lng && satelliteMarker) {
-            const pos =[data.lat, data.lng];
-            satelliteMarker.setLatLng(pos);
-            orbitPath.addLatLng(pos);
-            map.panTo(pos, { animate: true, duration: 1.0 });
-        }
-        
-        if (data.thermal) {
-            updateThermalFromTelemetry(data.thermal);
-        }
+        // Live text label logic applies to both types
+        const group = document.getElementById('chart-group')?.value;
+        const metricName = document.getElementById('chart-metric')?.value;
+        if(group && metricName) updateLiveTextValueDisplay(group, metricName);
     });
 }
 
@@ -719,12 +702,21 @@ function renderRGBResults(data) {
     if (allZones.length > 0) {
         zoneList.innerHTML = allZones.map((z, i) => {
             const confClass = z.confidence >= 80 ? 'conf-high' : 'conf-med';
+            let aoiHtml = '';
+            if (z.lat && z.lng) {
+                aoiHtml = `<div style="font-size:0.8rem; color:#66fcf1; margin-top:6px; font-family:'Courier New', monospace; letter-spacing:1px; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:4px;">
+                            📍 AOI: Lat ${z.lat}, Lng ${z.lng}
+                           </div>`;
+            }
+
             return `
-            <div class="zone-item">
-                <span class="zone-num">${i + 1}</span>
-                <span class="zone-label">${z.label}</span>
-                <span class="zone-area">${z.area_pct}% of image</span>
-                <span class="zone-conf ${confClass}">${z.confidence}% Conf</span>
+            <div class="zone-item" style="height:auto; flex-direction:column; align-items:flex-start; padding:10px;">
+                <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                    <span><span class="zone-num">${i + 1}</span> <span class="zone-label">${z.label}</span></span>
+                    <span class="zone-area">${z.area_pct}% area</span>
+                    <span class="zone-conf ${confClass}">${z.confidence}% Conf</span>
+                </div>
+                ${aoiHtml}
             </div>`;
         }).join('');
         zoneWrap.style.display = 'block';

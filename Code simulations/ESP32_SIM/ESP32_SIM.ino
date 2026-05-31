@@ -74,7 +74,6 @@ void executeCommand(String cmd) {
         payload_state = 0;
         Serial.println("TLM_MSG,Payload powered OFF");
     }
-     // ---> NEW: FDIR TOGGLE COMMANDS <---
     else if (cmd == "FDIR:OVERRIDE") {
         fdir_override = true;
         Serial.println("TLM_MSG,FDIR Mode set to OVERRIDE (Manual Control)");
@@ -95,11 +94,31 @@ void executeCommand(String cmd) {
     else if (cmd == "PAYLOAD:PING") {
         Serial.println("TLM_MSG,PAYLOAD PONG - Optics nominal");
     }
-    else if (cmd == "REQ_LATEST") {
-        Serial.println("TLM_MSG,Queuing SD Card data for downlink");
-        payload_state = 2; 
-        obc_sd_used = max(0.0f, obc_sd_used - 1.5f); 
+    
+    // ==========================================
+    // NEW: SIMULATED DATA RETRIEVAL RESPONSES
+    // ==========================================
+    else if (cmd == "REQ_TLM") {
+        Serial.println("TLM_MSG,Simulating Telemetry SD Downlink...");
+        // The main loop is already printing TLM_RCV, so we just acknowledge it.
     }
+    else if (cmd == "REQ_GSN") {
+        Serial.println("TLM_MSG,Simulating GSN SD Downlink...");
+        // Simulate reading a GSN file by printing a fake GSN string
+        Serial.println("GSN_RCV,20260531_150000,GSN-01,-75,25.1,76.4,40,0,0,7.78,84,8.5");
+    }
+    else if (cmd == "REQ_IMG_LIST") {
+        Serial.println("TLM_MSG,Querying Payload SD for Image Catalog...");
+        // Simulate the payload returning a list of available files
+        Serial.println("IMG_LIST:IMG_20260531_101500.jpg,IMG_20260531_143000.jpg,IMG_20260531_160000.jpg");
+    }
+    else if (cmd.startsWith("REQ_IMG:")) {
+        String ts = cmd.substring(8);
+        Serial.print("TLM_MSG,Simulating Image Download: IMG_");
+        Serial.print(ts);
+        Serial.println(".jpg");
+    }
+    
     else {
         Serial.print("TLM_MSG,Command not recognized: ");
         Serial.println(cmd);
@@ -229,55 +248,34 @@ void loop() {
         // E. TRANSMIT DOWNLINK CSV
         // =========================================================
         if (inPass) {
-            int gs_rssi = random(-95, -40); 
             String sat_id = "FG-ALPHA"; 
 
+            // --- 1. TRANSMIT TELEMETRY PACKET ---
             Serial.print("TLM_RCV,");
-            Serial.print(gs_rssi); Serial.print(",");            // [1]
-            Serial.print(sat_id); Serial.print(",");             // [2]
-            Serial.print(currentTimeStr); Serial.print(",");  // [3]
-            Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print(","); // [4]
-            Serial.print(payload_state); Serial.print(",");      // [5]
-            Serial.print(obc_temp); Serial.print(",");           // [6]
-            Serial.print(payload_temp); Serial.print(",");       // [7]
-            Serial.print(rssi_uplink); Serial.print(",");        // [8]
-            
-            Serial.print(eps_soc); Serial.print(",");            // [9]
-            Serial.print(eps_v_bat); Serial.print(",");          // [10]
-            Serial.print(eps_v_3v3); Serial.print(",");          // [11]
-            Serial.print(eps_v_5v); Serial.print(",");           // [12]
-            Serial.print(eps_i_in); Serial.print(",");           // [13]
-            Serial.print(eps_i_out); Serial.print(",");          // [14]
-            Serial.print(eps_i_payload); Serial.print(",");      // [15]
-            Serial.print(eps_i_comms); Serial.print(",");        // [16]
-            Serial.print(eps_temp); Serial.print(",");           // [17]
-            
-            Serial.print(env_pressure); Serial.print(",");       // [18]
-            Serial.print(env_humidity); Serial.print(",");       // [19]
-            Serial.print(gps_alt); Serial.print(",");            // [20]
-            
-            Serial.print(obc_sd_used); Serial.print(",");        // [21]
-            Serial.print(payload_sd_used); Serial.print(",");    // [22]
-            Serial.print(image_resolution); Serial.print(",");   // [23]
+            Serial.print(sat_id); Serial.print(",");
+            Serial.print(currentTimeStr); Serial.print(",");
+            Serial.print(fdir_override ? "OVERRIDE" : "AUTO"); Serial.print(",");
+            Serial.print(payload_state); Serial.print(",");
+            Serial.print(obc_temp); Serial.print(",");
+            Serial.print(payload_temp); Serial.print(",");
+            Serial.print(rssi_uplink); Serial.print(",");
+            Serial.print(eps_soc); Serial.print(",");
+            Serial.print(eps_v_bat); Serial.print(",");
+            Serial.print(eps_v_3v3); Serial.print(",");
+            Serial.print(eps_v_5v); Serial.print(",");
+            Serial.print(eps_i_in); Serial.print(",");
+            Serial.print(eps_i_out); Serial.print(",");
+            Serial.print(eps_i_payload); Serial.print(",");
+            Serial.print(eps_i_comms); Serial.print(",");
+            Serial.print(eps_temp); Serial.print(",");
+            Serial.print(env_pressure); Serial.print(",");
+            Serial.print(env_humidity); Serial.print(",");
+            Serial.print(gps_alt); Serial.print(",");
+            Serial.print(obc_sd_used); Serial.print(",");
+            Serial.print(payload_sd_used); Serial.print(",");
+            Serial.print(image_resolution); Serial.print(",");
 
-            int has_gsn = 1; 
-            Serial.print(has_gsn); Serial.print(",");            // [24]
-            
-            gsn_sd_used += 0.005; 
-            if(gsn_sd_used > 100.0) gsn_sd_used = 100.0;
-
-            Serial.print(currentTimeStr); Serial.print(","); // [25]
-            Serial.print("GSN-01"); Serial.print(",");           // [26]
-            Serial.print(random(-95, -70)); Serial.print(",");   // [27]
-            Serial.print(24.5 + (random(-15, 15)/10.0)); Serial.print(","); // [28]
-            Serial.print(78.2 + (random(-50, 50)/10.0)); Serial.print(","); // [29]
-            Serial.print(45 + random(-5, 5)); Serial.print(","); // [30]
-            Serial.print(random(0, 100) < 5 ? 1 : 0); Serial.print(","); // [31]
-            Serial.print(random(0, 100) < 8 ? 1 : 0); Serial.print(","); // [32]
-            Serial.print(7.82 - (random(0, 5)/100.0)); Serial.print(","); // [33]
-            Serial.print(85 - random(0, 2)); Serial.print(",");  // [34]
-            Serial.print(gsn_sd_used); Serial.print(",");        // [35]
-
+            // Thermal Data Array
             bool fireDetected = random(0, 100) < 15; 
             int firePixel = random(0, 64); 
             for (int i = 0; i < 64; i++) {
@@ -285,7 +283,26 @@ void loop() {
                 Serial.print(pixelTemp);
                 if (i < 63) Serial.print(",");
             }
-            Serial.println(); 
+            Serial.println(); // End of TLM_RCV Packet
+
+            // --- 2. TRANSMIT GSN PACKET (SEPARATE STREAM) ---
+            gsn_sd_used += 0.005; 
+            if(gsn_sd_used > 100.0) gsn_sd_used = 100.0;
+
+            // Format: GSN_RCV, TIMESTAMP, NODE_ID, RSSI, TEMP, HUM, SOIL, SMOKE, SOUND, V_BAT, SOC, SD_PCT
+            Serial.print("GSN_RCV,");
+            Serial.print(currentTimeStr); Serial.print(","); // [1] Timestamp
+            Serial.print("GSN-01"); Serial.print(",");       // [2] Node ID
+            Serial.print(random(-95, -70)); Serial.print(","); // [3] Node RSSI
+            Serial.print(25.1 + (random(-15, 15)/10.0)); Serial.print(","); // [4] Temp
+            Serial.print(76.4 + (random(-50, 50)/10.0)); Serial.print(","); // [5] Hum
+            Serial.print(40 + random(-5, 5)); Serial.print(","); // [6] Soil
+            Serial.print(random(0, 100) < 5 ? 1 : 0); Serial.print(","); // [7] Smoke
+            Serial.print(random(0, 100) < 8 ? 1 : 0); Serial.print(","); // [8] Sound
+            Serial.print(7.78 - (random(0, 5)/100.0)); Serial.print(","); // [9] V_BAT
+            Serial.print(84 - random(0, 2)); Serial.print(",");  // [10] SOC
+            Serial.print(gsn_sd_used);                           // [11] SD_PCT
+            Serial.println(); // End of GSN_RCV Packet
         }
     }
 }

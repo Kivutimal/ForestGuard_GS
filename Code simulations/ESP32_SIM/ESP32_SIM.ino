@@ -19,7 +19,9 @@ int rssi_uplink = -85;
 float eps_soc = 85.0;       
 float eps_v_bat = 8.0;      
 float eps_v_3v3 = 3.3;      
-float eps_v_5v = 5.02;      
+float eps_v_5v_1 = 5.02;    // Payload Bus
+float eps_v_5v_2 = 5.01;    // Comms Bus
+float eps_v_5v_3 = 5.03;    // Aux/Sensor Bus      
 float eps_temp = 24.0;      
 int eps_i_in = 0;           
 int eps_i_out = 0;          
@@ -233,7 +235,15 @@ void loop() {
         
         eps_v_bat = 6.0 + ((eps_soc / 100.0) * 2.4) - ((eps_i_out / 1000.0) * 0.15);
         eps_v_3v3 = 3.3 + (random(-2, 2) / 100.0);
-        eps_v_5v = payload_state > 0 ? 4.95 + (random(-5, 5) / 100.0) : 5.02;
+        
+        // 5V_1 (Payload) drops heavily when taking pictures
+        eps_v_5v_1 = payload_state > 0 ? 4.90 + (random(-5, 5) / 100.0) : 5.02;
+        
+        // 5V_2 (Comms) drops slightly during LoRa transmissions
+        eps_v_5v_2 = inPass ? 4.96 + (random(-2, 2) / 100.0) : 5.01;
+        
+        // 5V_3 (Aux) is always stable
+        eps_v_5v_3 = 5.02 + (random(-1, 1) / 100.0);
 
         obc_temp = 30.0 + (eps_i_out / 200.0) + random(-1, 2); 
         eps_temp = 20.0 + (abs(net_amps) * 5.0);
@@ -262,7 +272,9 @@ void loop() {
             Serial.print(eps_soc); Serial.print(",");
             Serial.print(eps_v_bat); Serial.print(",");
             Serial.print(eps_v_3v3); Serial.print(",");
-            Serial.print(eps_v_5v); Serial.print(",");
+            Serial.print(eps_v_5v_1); Serial.print(","); // Bus 1
+            Serial.print(eps_v_5v_2); Serial.print(","); // Bus 2
+            Serial.print(eps_v_5v_3); Serial.print(","); // Bus 3
             Serial.print(eps_i_in); Serial.print(",");
             Serial.print(eps_i_out); Serial.print(",");
             Serial.print(eps_i_payload); Serial.print(",");

@@ -393,7 +393,15 @@ if (socket) {
                 document.getElementById('val-eps-iout').innerText = data.eps.i_out + ' mA';
                 document.getElementById('val-eps-vbat').innerText = data.eps.v_bat.toFixed(2) + ' V';
                 document.getElementById('val-eps-3v3').innerText = data.eps.v_3v3.toFixed(2) + ' V';
-                document.getElementById('val-eps-5v').innerText = data.eps.v_5v.toFixed(2) + ' V';
+                
+                // --- NEW: Three 5V Buses ---
+                const v5v1El = document.getElementById('val-eps-5v1');
+                const v5v2El = document.getElementById('val-eps-5v2');
+                const v5v3El = document.getElementById('val-eps-5v3');
+                
+                if (v5v1El) v5v1El.innerText = data.eps.v_5v_1 !== undefined ? data.eps.v_5v_1.toFixed(2) + ' V' : '-- V';
+                if (v5v2El) v5v2El.innerText = data.eps.v_5v_2 !== undefined ? data.eps.v_5v_2.toFixed(2) + ' V' : '-- V';
+                if (v5v3El) v5v3El.innerText = data.eps.v_5v_3 !== undefined ? data.eps.v_5v_3.toFixed(2) + ' V' : '-- V';
                 document.getElementById('val-eps-ipayload').innerText = i_payload + ' mA';
                 document.getElementById('val-eps-icomms').innerText = i_comms + ' mA';
                 document.getElementById('val-eps-iobc').innerText = i_obc + ' mA';

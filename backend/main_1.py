@@ -330,7 +330,7 @@ def read_serial_data():
 
                     try:
                         parts = line_with_rssi.split(',')
-                        if len(parts) >= 23: 
+                        if len(parts) >= 25: 
                             data = {
                                 "type": "TELEMETRY", 
                                 "rssi_gs": int(parts[1]), 
@@ -340,14 +340,14 @@ def read_serial_data():
                                 "obc_temp": float(parts[6]),
                                 "payload_temp": float(parts[7]), 
                                 "rssi_uplink": int(parts[8]), 
-                                "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v": float(parts[12]), "i_in": int(parts[13]), "i_out": int(parts[14]), "i_payload": int(parts[15]), "i_comms": int(parts[16]), "temp": float(parts[17])},
-                                "env": {"pressure": float(parts[18]), "humidity": float(parts[19])},
-                                "gps": {"alt": float(parts[20])},
-                                "sd": {"obc": float(parts[21]), "payload": float(parts[22])},
-                                "resolution": int(parts[23]) 
+                                "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v_1": float(parts[12]), "v_5v_2": float(parts[13]), "v_5v_3": float(parts[14]),"i_in": int(parts[15]), "i_out": int(parts[16]), "i_payload": int(parts[17]), "i_comms": int(parts[18]), "temp": float(parts[19])},
+                                "env": {"pressure": float(parts[20]), "humidity": float(parts[21])},
+                                "gps": {"alt": float(parts[22])},
+                                "sd": {"obc": float(parts[23]), "payload": float(parts[24])},
+                                "resolution": int(parts[25]) 
                             }
                             
-                            idx = 24 
+                            idx = 26 
                             
                             if len(parts) >= idx + 64:
                                 data["thermal"] =[float(p) for p in parts[idx:idx+64]]

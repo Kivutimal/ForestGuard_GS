@@ -65,9 +65,9 @@ if (mapElement) {
 const chartMappings = {
     rssi: {
         "All RSSI Networks": { indices: [0, 1, 2], unit: "dBm" },
-        "GS RSSI Only": { indices: [0], unit: "dBm" },
-        "Uplink RSSI Only": { indices: [1], unit: "dBm" },
-        "GSN RSSI Only": { indices: [2], unit: "dBm" }
+        "Sat Downlink RSSI (Local)": { indices: [0], unit: "dBm" },
+        "GS Uplink RSSI (Remote)": { indices: [1], unit: "dBm" },
+        "GSN Node RSSI (Remote)": { indices: [2], unit: "dBm" }
     },
     temp: {
         "All Temperatures": { indices: [3, 4, 5], unit: "°C" },
@@ -91,6 +91,12 @@ const chartMappings = {
         "Internal Pressure": { indices: [13], unit: "hPa" },
         "Internal Humidity": { indices: [14], unit: "%" },
         "GPS Altitude": { indices: [15], unit: "km" }
+    },
+    gsn: {
+            "All GSN Node Data": { indices: [16, 17, 18], unit: "Mixed" },
+            "Soil Moisture (%)": { indices: [16], unit: "%" },
+            "Ambient Temp (°C)": { indices: [17], unit: "°C" },
+            "Node Battery (%)": { indices: [18], unit: "%" }
     }
 };
 
@@ -98,7 +104,112 @@ let latestTelemetryCache = {
     0: "--", 1: "--", 2: "--", 3: "--", 4: "--",
     5: "--", 6: "--", 7: "--", 8: "--", 9: "--",
     10: "--", 11: "--", 12: "--", 13: "--", 14: "--",
-    15: "--"
+    15: "--", 16: "--", 17: "--", 18: "--"
+};
+
+// ==============================================================================
+// CHART MODE: LIVE vs HISTORY
+// ==============================================================================
+window.chartMode = 'live'; // Defaults to live mode
+
+window.setChartMode = function(mode) {
+    window.chartMode = mode;
+    const btnLive = document.getElementById('btn-mode-live');
+    const btnHist = document.getElementById('btn-mode-hist');
+    const btnRefresh = document.getElementById('btn-refresh-hist');
+
+    if (!btnLive || !btnHist) return;
+
+    if (mode === 'live') {
+        btnLive.style.background = 'rgba(0,255,0,0.15)';
+        btnLive.style.color = 'var(--success-green)';
+        btnHist.style.background = 'transparent';
+        btnHist.style.color = '#8a9ba8';
+        if(btnRefresh) btnRefresh.style.display = 'none';
+        
+        // Clear chart for the fresh live feed
+        if (window.signalChart) {
+            window.signalChart.data.labels = [];
+            window.signalChart.data.datasets.forEach(ds => ds.data = []);
+            window.signalChart.update();
+        }
+    } else {
+        btnHist.style.background = 'rgba(102,252,241,0.15)';
+        btnHist.style.color = '#66fcf1';
+        btnLive.style.background = 'transparent';
+        btnLive.style.color = '#8a9ba8';
+        if(btnRefresh) btnRefresh.style.display = 'inline-block';
+        
+        loadHistoricalData(); // Fetch the history from the database!
+    }
+};
+
+window.loadHistoricalData = async function() {
+    if (!window.signalChart) return;
+    try {
+        // Fetch BOTH databases simultaneously!
+        const [resTlm, resGsn] = await Promise.all([
+            fetch('/api/history/telemetry?limit=50'),
+            fetch('/api/history/gsn?limit=50')
+        ]);
+        
+        const historyTlm = await resTlm.json();
+        const historyGsn = await resGsn.json();
+
+        window.signalChart.data.labels = [];
+        window.signalChart.data.datasets.forEach(ds => ds.data = []);
+
+        // Use Telemetry rows as the main timeline, and attach GSN data to the same timestamps
+        historyTlm.forEach((row, index) => {
+            const timeStr = String(row.timestamp).replace("_", " ");
+            window.signalChart.data.labels.push(timeStr);
+            
+            window.signalChart.data.datasets[0].data.push(row.rssi_gs || 0);
+            window.signalChart.data.datasets[1].data.push(row.rssi_uplink || 0);
+            
+            window.signalChart.data.datasets[3].data.push(row.obc_temp || 0);
+            window.signalChart.data.datasets[4].data.push(row.payload_temp || 0);
+            window.signalChart.data.datasets[5].data.push(row.eps_temp || 0);
+            
+            window.signalChart.data.datasets[6].data.push(row.eps_soc || 0);
+            window.signalChart.data.datasets[7].data.push(row.eps_i_in || 0);
+            window.signalChart.data.datasets[8].data.push(row.eps_i_out || 0);
+            window.signalChart.data.datasets[9].data.push(row.eps_v_bat || 0);
+            
+            window.signalChart.data.datasets[10].data.push(row.eps_i_payload || 0);
+            window.signalChart.data.datasets[11].data.push(row.eps_i_comms || 0);
+            
+            const obcDraw = (row.eps_i_out || 0) - ((row.eps_i_payload || 0) + (row.eps_i_comms || 0));
+            window.signalChart.data.datasets[12].data.push(obcDraw > 0 ? obcDraw : 0);
+            
+            window.signalChart.data.datasets[13].data.push(row.env_pressure || 0);
+            window.signalChart.data.datasets[14].data.push(row.env_humidity || 0);
+            window.signalChart.data.datasets[15].data.push(row.gps_alt || 0);
+            
+            // Map the GSN Database row alongside the Telemetry row!
+            if (historyGsn[index]) {
+                window.signalChart.data.datasets[2].data.push(historyGsn[index].rssi || 0); // The missing GSN RSSI!
+                window.signalChart.data.datasets[16].data.push(historyGsn[index].soil || 0);
+                window.signalChart.data.datasets[17].data.push(historyGsn[index].temp || 0);
+                window.signalChart.data.datasets[18].data.push(historyGsn[index].soc || 0);
+            } else {
+                window.signalChart.data.datasets[2].data.push(null);
+                window.signalChart.data.datasets[16].data.push(null);
+                window.signalChart.data.datasets[17].data.push(null);
+                window.signalChart.data.datasets[18].data.push(null);
+            }
+        });
+
+        window.signalChart.update();
+        
+        // Force the text to update immediately after drawing the chart
+        const currentGroup = document.getElementById('chart-group').value;
+        const currentMetric = document.getElementById('chart-metric').value;
+        updateLiveTextValueDisplay(currentGroup, currentMetric);
+        
+    } catch (e) {
+        console.error("Failed to fetch historical data from DB:", e);
+    }
 };
 
 const chartElement = document.getElementById('chart-container');
@@ -112,9 +223,9 @@ if (chartElement) {
             labels:[],
             datasets:[
                 // 0-2: RSSI
-                { label: 'GS RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
-                { label: 'Up RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
-                { label: 'GSN RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'Sat Downlink RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'GS Uplink RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
+                { label: 'GSN Node RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
                 
                 // 3-5: Temperatures
                 { label: 'OBC Temp', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
@@ -135,8 +246,14 @@ if (chartElement) {
                 // 13-15: Environment & GPS Altitude
                 { label: 'Pressure', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Humidity', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
-                { label: 'Altitude', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 }
+                { label: 'Altitude', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                
+                // ---16-18 GSN DATASETS ---
+                { label: 'Soil Moisture', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'GSN Temp', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
+                { label: 'Node Battery', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 }
             ]
+
         },
         options: { 
             maintainAspectRatio: false, 
@@ -178,27 +295,41 @@ window.updateChartVisibility = function() {
     updateLiveTextValueDisplay(group, metricName);
 };
 
-function updateLiveTextValueDisplay(group, metricName) {
+window.updateLiveTextValueDisplay = function(group, metricName) {
     const displayEl = document.getElementById('chart-live-value');
-    if (!displayEl) return;
+    if (!displayEl || !chartMappings[group] || !chartMappings[group][metricName]) return;
     
     const mapData = chartMappings[group][metricName];
     const indices = mapData.indices;
     const unit = mapData.unit;
+
+    // Smart fetcher: reads Cache in Live Mode, but reads the Chart in History Mode!
+    const getSafeValue = (idx) => {
+        if (window.chartMode === 'history') {
+            const dataset = window.signalChart.data.datasets[idx];
+            if (dataset && dataset.data.length > 0) {
+                let val = dataset.data[dataset.data.length - 1]; // Get latest point from chart
+                return typeof val === 'number' ? val.toFixed(1) : val;
+            }
+            return "--";
+        } else {
+            return latestTelemetryCache[idx] !== undefined ? latestTelemetryCache[idx] : "--";
+        }
+    };
     
     if (indices.length === 1) {
         const idx = indices[0];
         const label = window.signalChart.data.datasets[idx].label;
         const color = window.signalChart.data.datasets[idx].borderColor;
-        const val = latestTelemetryCache[idx];
+        const val = getSafeValue(idx);
         
         displayEl.innerHTML = `<span style="color:${color}">${label}: ${val} ${unit}</span>`;
     } else {
-        let htmlParts =[];
+        let htmlParts = [];
         indices.forEach(idx => {
             const label = window.signalChart.data.datasets[idx].label;
             const color = window.signalChart.data.datasets[idx].borderColor;
-            const val = latestTelemetryCache[idx];
+            const val = getSafeValue(idx);
             htmlParts.push(`<span style="color:${color}">${label}: ${val}</span>`);
         });
         displayEl.innerHTML = htmlParts.join(' <span style="color:#5a7080">|</span> ') + ` <span style="font-size:0.8em; color:#8a9ba8;">(${unit})</span>`;
@@ -386,11 +517,10 @@ if (socket) {
     });
 }
 
-// --- NEW: FETCH ALARMS ON PAGE LOAD SO THEY SURVIVE REFRESHES ---
+// --- NEW: FETCH ALARMS AND GSN ON PAGE LOAD ---
 document.addEventListener("DOMContentLoaded", async () => {
-    // ... your other DOMContentLoaded logic ...
     
-    // Fetch un-acked alarms from the database
+    // 1. Fetch un-acked alarms from the database
     if (document.getElementById('event-log-stack')) {
         try {
             const res = await fetch('/api/active_alarms');
@@ -401,7 +531,88 @@ document.addEventListener("DOMContentLoaded", async () => {
             console.log("No active alarms fetched.");
         }
     }
+
+    // 2. NEW: Hydrate GSN UI from Database on load!
+    if (document.getElementById('val-gsn-node')) {
+        try {
+            // Ask the database for just the 1 most recent GSN record
+            const res = await fetch('/api/history/gsn?limit=1');
+            const gsnHistory = await res.json();
+            
+            if (gsnHistory && gsnHistory.length > 0) {
+                // Pass it directly into the UI updater function
+                updateGsnUI(gsnHistory[0]);
+            }
+        } catch (e) {
+            console.log("No historical GSN data found for hydration.");
+        }
+    }
 });
+
+// ==============================================================================
+// GSN DEBOUNCE LOGIC (Hides the flicker during file dumps)
+// ==============================================================================
+let gsnUpdateTimer = null;
+let latestGsnData = null;
+
+function updateGsnUI(gsn) {
+    if (!gsn) return;
+    
+    // Update the Cache for charts
+    latestTelemetryCache[2] = gsn.rssi;
+
+    const gTimeEl = document.getElementById('val-gsn-time');
+    if (gTimeEl && gsn.timestamp) {
+        gTimeEl.innerText = "Recorded: " + String(gsn.timestamp).replace("_", " ");
+    }
+
+    const gNode = document.getElementById('val-gsn-node');
+    if(gNode) gNode.innerText = `NODE: ${gsn.node_id}`;
+    
+    const gSmoke = document.getElementById('val-gsn-smoke');
+    if(gSmoke) {
+        gSmoke.innerText = gsn.smoke === 1 ? "DETECTED" : "CLEAR";
+        gSmoke.style.color = gsn.smoke === 1 ? "var(--danger-red)" : "var(--success-green)";
+    }
+    
+    const gSound = document.getElementById('val-gsn-sound');
+    if(gSound) {
+        gSound.innerText = gsn.sound === 1 ? "DETECTED" : "CLEAR";
+        gSound.style.color = gsn.sound === 1 ? "#f1c40f" : "var(--success-green)";
+    }
+    
+    const gSoil = document.getElementById('val-gsn-soil');
+    if(gSoil) gSoil.innerText = gsn.soil + '%';
+    
+    const gTemp = document.getElementById('val-gsn-temp');
+    if(gTemp) gTemp.innerText = gsn.temp.toFixed(1) + '°C';
+    
+    const gHum = document.getElementById('val-gsn-hum');
+    if(gHum) gHum.innerText = gsn.hum.toFixed(1) + '%';
+    
+    const gBat = document.getElementById('val-gsn-bat');
+    if(gBat) {
+        gBat.innerText = gsn.soc + '%';
+        gBat.style.color = gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
+    }
+
+    const sdGsnEl = document.getElementById('val-sd-gsn');
+    if (sdGsnEl && gsn.sd !== undefined) {
+        sdGsnEl.innerText = gsn.sd.toFixed(1) + '%';
+        sdGsnEl.style.color = gsn.sd > 85 ? 'var(--danger-red)' : '#66fcf1';
+    }
+
+    const gsnIconDiv = document.getElementById('gsn-map-icon');
+    if (gsnIconDiv) {
+        if (gsn.smoke === 1 || gsn.sound === 1) {
+            gsnIconDiv.style.filter = 'drop-shadow(0 0 15px #e74c3c)';
+            gsnIconDiv.innerText = '🔥';
+        } else {
+            gsnIconDiv.style.filter = 'drop-shadow(0 0 8px #00ff00)';
+            gsnIconDiv.innerText = '🌳';
+        }
+    }
+}
 
 if (socket) {
     socket.on('telemetry_update', (data) => {
@@ -432,9 +643,9 @@ if (socket) {
         }
 
         // ========================================================
-        // ROUTE A: SATELLITE TELEMETRY PACKET
+        // ROUTE A: LIVE BEACON (Updates Gauges & Map)
         // ========================================================
-        if (data.type === 'TELEMETRY') {
+        if (data.type === 'LIVE_BEACON') {
             const satTimeString = String(data.timestamp).replace("_", " ");
 
             // --- Badges ---
@@ -442,14 +653,6 @@ if (socket) {
             if (fdirBadge) {
                 fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
                 fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
-                fdirBadge.style.borderColor = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1';
-            }
-            const resBadge = document.getElementById('badge-resolution');
-            if (resBadge && data.resolution !== undefined) {
-                resBadge.innerText = `📐 Res: ${data.resolution}p`;
-                if (data.resolution <= 480) resBadge.style.color = '#f1c40f'; 
-                else if (data.resolution >= 2160) resBadge.style.color = '#e74c3c'; 
-                else resBadge.style.color = '#66fcf1'; 
             }
             const plBadge = document.getElementById('badge-payload-state');
             if (plBadge) {
@@ -462,65 +665,16 @@ if (socket) {
                 }
             }
 
-            // --- Cache & EPS ---
-            latestTelemetryCache[0] = data.rssi_gs;
-            latestTelemetryCache[1] = data.rssi_uplink;
-            latestTelemetryCache[3] = data.obc_temp.toFixed(1);
-            latestTelemetryCache[4] = data.payload_temp.toFixed(1);
-
+            // --- Update Core Live Gauges ---
             if (data.eps) {
-                let i_payload = data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
-                let i_comms = data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
-                let i_obc = Math.max(0, data.eps.i_out - i_payload - i_comms);
-                
-                latestTelemetryCache[5] = data.eps.temp.toFixed(1);
-                latestTelemetryCache[6] = data.eps.soc.toFixed(1);
-                latestTelemetryCache[7] = data.eps.i_in;
-                latestTelemetryCache[8] = data.eps.i_out;
-                latestTelemetryCache[9] = data.eps.v_bat.toFixed(2);
-                latestTelemetryCache[10] = i_payload;
-                latestTelemetryCache[11] = i_comms;
-                latestTelemetryCache[12] = i_obc;
-
                 document.getElementById('val-eps-soc').innerText = data.eps.soc.toFixed(1) + '%';
-                document.getElementById('val-eps-iin').innerText = data.eps.i_in + ' mA';
-                document.getElementById('val-eps-iout').innerText = data.eps.i_out + ' mA';
                 document.getElementById('val-eps-vbat').innerText = data.eps.v_bat.toFixed(2) + ' V';
                 document.getElementById('val-eps-3v3').innerText = data.eps.v_3v3.toFixed(2) + ' V';
-                
-                // --- NEW: Three 5V Buses ---
-                const v5v1El = document.getElementById('val-eps-5v1');
-                const v5v2El = document.getElementById('val-eps-5v2');
-                const v5v3El = document.getElementById('val-eps-5v3');
-                
-                if (v5v1El) v5v1El.innerText = data.eps.v_5v_1 !== undefined ? data.eps.v_5v_1.toFixed(2) + ' V' : '-- V';
-                if (v5v2El) v5v2El.innerText = data.eps.v_5v_2 !== undefined ? data.eps.v_5v_2.toFixed(2) + ' V' : '-- V';
-                if (v5v3El) v5v3El.innerText = data.eps.v_5v_3 !== undefined ? data.eps.v_5v_3.toFixed(2) + ' V' : '-- V';
-                document.getElementById('val-eps-ipayload').innerText = i_payload + ' mA';
-                document.getElementById('val-eps-icomms').innerText = i_comms + ' mA';
-                document.getElementById('val-eps-iobc').innerText = i_obc + ' mA';
-
-                const net = data.eps.i_in - data.eps.i_out;
-                const stateEl = document.getElementById('val-eps-state');
-                if (stateEl) {
-                    if (net > 0) {
-                        stateEl.innerHTML = `🔋 CHARGING (+${net} mA)`; stateEl.style.color = 'var(--success-green)';
-                    } else if (net < 0) {
-                        stateEl.innerHTML = `⚠️ DISCHARGING (${net} mA)`; stateEl.style.color = 'var(--danger-red)';
-                    } else {
-                        stateEl.innerHTML = `⚖️ BALANCED (0 mA)`; stateEl.style.color = '#f1c40f';
-                    }
-                }
             }
-
             if (data.env) {
-                latestTelemetryCache[13] = data.env.pressure.toFixed(1);
-                latestTelemetryCache[14] = data.env.humidity.toFixed(1);
                 document.getElementById('val-env-press').innerText = data.env.pressure.toFixed(1) + ' hPa';
-                document.getElementById('val-env-hum').innerText = data.env.humidity.toFixed(1) + ' %';
             }
             if (data.gps) {
-                latestTelemetryCache[15] = data.gps.alt.toFixed(1);
                 document.getElementById('val-gps-alt').innerText = data.gps.alt.toFixed(1) + ' km';
             }
             if (data.lat && data.lng) {
@@ -528,61 +682,27 @@ if (socket) {
                 document.getElementById('val-gps-lng').innerText = data.lng.toFixed(4) + '°';
                 
                 if (satelliteMarker) {
-                    const pos =[data.lat, data.lng];
+                    const pos = [data.lat, data.lng];
                     satelliteMarker.setLatLng(pos);
                     orbitPath.addLatLng(pos);
                     map.panTo(pos, { animate: true, duration: 1.0 });
                 }
             }
-            if (data.sd) {
-                const sdObcEl = document.getElementById('val-sd-obc');
-                const sdPayEl = document.getElementById('val-sd-pay');
-                if (sdObcEl) {
-                    sdObcEl.innerText = data.sd.obc.toFixed(1) + '%';
-                    sdObcEl.style.color = data.sd.obc > 85 ? 'var(--danger-red)' : '#66fcf1';
-                }
-                if (sdPayEl) {
-                    sdPayEl.innerText = data.sd.payload.toFixed(1) + '%';
-                    sdPayEl.style.color = data.sd.payload > 85 ? 'var(--danger-red)' : '#66fcf1';
-                }
-            }
+            
+            // Check for live brownouts/critical failures
+            checkEPSAnomalies(data.eps, data.obc_temp, null, data.fdir_mode, data.payload_state, data.env, satTimeString);
+        }
 
+        // ========================================================
+        // ROUTE B: HISTORICAL TELEMETRY (Dumps to Event Stack only!)
+        // ========================================================
+        else if (data.type === 'HISTORICAL_TELEMETRY') {
+            const satTimeString = String(data.timestamp).replace("_", " ");
+            
+            // Do NOT update the live gauges! 
+            // Only scan this data to see if any alarms happened in the past.
             checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env, satTimeString);
-            triggerEPSPulse();
-
-            // --- CHART PUSH (ONLY during Telemetry updates to prevent zigzag lines) ---
-            if (window.signalChart) {
-                window.signalChart.data.labels.push(satTimeString);
-                window.signalChart.data.datasets[0].data.push(data.rssi_gs);
-                window.signalChart.data.datasets[1].data.push(data.rssi_uplink);
-                // Pull GSN RSSI from the cache
-                window.signalChart.data.datasets[2].data.push(latestTelemetryCache[2] !== "--" ? latestTelemetryCache[2] : 0); 
-                window.signalChart.data.datasets[3].data.push(data.obc_temp);
-                window.signalChart.data.datasets[4].data.push(data.payload_temp);
-                window.signalChart.data.datasets[5].data.push(data.eps ? data.eps.temp : 0);
-                window.signalChart.data.datasets[6].data.push(data.eps ? data.eps.soc : 0);
-                window.signalChart.data.datasets[7].data.push(data.eps ? data.eps.i_in : 0);
-                window.signalChart.data.datasets[8].data.push(data.eps ? data.eps.i_out : 0);
-                window.signalChart.data.datasets[9].data.push(data.eps ? data.eps.v_bat : 0);
-                
-                let i_p = data.eps && data.eps.i_payload !== undefined ? data.eps.i_payload : 0;
-                let i_c = data.eps && data.eps.i_comms !== undefined ? data.eps.i_comms : 0;
-                let i_o = data.eps ? Math.max(0, data.eps.i_out - i_p - i_c) : 0;
-                
-                window.signalChart.data.datasets[10].data.push(i_p);
-                window.signalChart.data.datasets[11].data.push(i_c);
-                window.signalChart.data.datasets[12].data.push(i_o);
-                window.signalChart.data.datasets[13].data.push(data.env ? data.env.pressure : 0);
-                window.signalChart.data.datasets[14].data.push(data.env ? data.env.humidity : 0);
-                window.signalChart.data.datasets[15].data.push(data.gps ? data.gps.alt : 0);
-
-                if (window.signalChart.data.labels.length > 20) {
-                    window.signalChart.data.labels.shift();
-                    window.signalChart.data.datasets.forEach(ds => ds.data.shift());
-                }
-                window.signalChart.update();
-            }
-
+            
             if (data.ir_zones) {
                 updateIRSensorUI(data.ir_zones, data.payload_state);
             }
@@ -593,50 +713,21 @@ if (socket) {
         // ========================================================
         else if (data.type === 'GSN_UPDATE') {
             if (data.gsn) {
-                // Update Cache so the Chart picks it up on the next tick
-                latestTelemetryCache[2] = data.gsn.rssi;
-
-                const gTimeEl = document.getElementById('val-gsn-time');
-                if (gTimeEl && data.gsn.timestamp) {
-                    gTimeEl.innerText = "Recorded: " + String(data.gsn.timestamp).replace("_", " ");
-                }
-
-                document.getElementById('val-gsn-node').innerText = `NODE: ${data.gsn.node_id}`;
-                
-                const gSmoke = document.getElementById('val-gsn-smoke');
-                gSmoke.innerText = data.gsn.smoke === 1 ? "DETECTED" : "CLEAR";
-                gSmoke.style.color = data.gsn.smoke === 1 ? "var(--danger-red)" : "var(--success-green)";
-                
-                const gSound = document.getElementById('val-gsn-sound');
-                gSound.innerText = data.gsn.sound === 1 ? "DETECTED" : "CLEAR";
-                gSound.style.color = data.gsn.sound === 1 ? "#f1c40f" : "var(--success-green)";
-                
-                document.getElementById('val-gsn-soil').innerText = data.gsn.soil + '%';
-                document.getElementById('val-gsn-temp').innerText = data.gsn.temp.toFixed(1) + '°C';
-                document.getElementById('val-gsn-hum').innerText = data.gsn.hum.toFixed(1) + '%';
-                
-                const gBat = document.getElementById('val-gsn-bat');
-                gBat.innerText = data.gsn.soc + '%';
-                gBat.style.color = data.gsn.soc > 20 ? "var(--success-green)" : "var(--danger-red)";
-
-                const sdGsnEl = document.getElementById('val-sd-gsn');
-                if (sdGsnEl && data.gsn.sd !== undefined) {
-                    sdGsnEl.innerText = data.gsn.sd.toFixed(1) + '%';
-                    sdGsnEl.style.color = data.gsn.sd > 85 ? 'var(--danger-red)' : '#66fcf1';
-                }
-
-                const gsnIconDiv = document.getElementById('gsn-map-icon');
-                if (gsnIconDiv) {
-                    if (data.gsn.smoke === 1 || data.gsn.sound === 1) {
-                        gsnIconDiv.style.filter = 'drop-shadow(0 0 15px #e74c3c)';
-                        gsnIconDiv.innerText = '🔥';
-                    } else {
-                        gsnIconDiv.style.filter = 'drop-shadow(0 0 8px #00ff00)';
-                        gsnIconDiv.innerText = '🌳';
-                    }
-                }
-
+                // 1. Instantly check for alarms (We NEVER delay security alerts!)
                 checkGSNAnomalies(data.gsn);
+
+                // 2. Save to memory for the UI
+                latestGsnData = data.gsn;
+
+                // 3. Clear the timer if a new packet just arrived
+                if (gsnUpdateTimer) {
+                    clearTimeout(gsnUpdateTimer);
+                }
+
+                // 4. Set a timer. If no new packets arrive for 200ms, the dump is finished! Draw the UI.
+                gsnUpdateTimer = setTimeout(() => {
+                    updateGsnUI(latestGsnData);
+                }, 200);
             }
         }
 

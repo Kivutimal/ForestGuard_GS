@@ -353,6 +353,77 @@ def predict_pass():
             
     return jsonify({"error": "No pass found for these coordinates in the next 24 hours"}), 404
 
+# ==============================================================================
+# HISTORICAL DATA API (Fetching from SQLite for Charts & UI Hydration)
+# ==============================================================================
+@app.route('/api/history/<subsystem>', methods=['GET'])
+@login_required()
+def get_historical_data(subsystem):
+    """Fetches historical data from the database for the charts and UI hydration."""
+    
+    # Optional parameter to limit how many rows we pull (default to 50)
+    limit = request.args.get('limit', 50, type=int)
+    
+    db_path = os.path.join(BASE_DIR, 'forestguard.db')
+    data = []
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row # This lets us access columns by name!
+        cursor = conn.cursor()
+        
+        if subsystem == 'telemetry':
+            # Pull the most recent telemetry rows
+            cursor.execute("SELECT * FROM telemetry ORDER BY id DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            
+            for r in rows:
+                data.append({
+                    "timestamp": r["timestamp"],
+                    "rssi_gs": r["gs_rssi"],
+                    "rssi_uplink": r["rssi_uplink"],
+                    "obc_temp": r["obc_temp"],
+                    "payload_temp": r["payload_temp"],
+                    "eps_temp": r["eps_temp"],
+                    "eps_soc": r["eps_soc"],
+                    "eps_v_bat": r["eps_v_bat"],
+                    "eps_i_in": r["eps_i_in"],
+                    "eps_i_out": r["eps_i_out"],
+                    "eps_i_payload": r["eps_i_payload"],
+                    "eps_i_comms": r["eps_i_comms"],
+                    "env_pressure": r["env_pressure"],
+                    "env_humidity": r["env_humidity"],
+                    "gps_alt": r["gps_alt"]
+                })
+                
+        elif subsystem == 'gsn':
+            # Pull the most recent GSN rows
+            cursor.execute("SELECT * FROM gsn ORDER BY id DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            for r in rows:
+                data.append({
+                    "timestamp": r["timestamp"],
+                    "node_id": r["node_id"],
+                    "temp": r["temp"],
+                    "hum": r["hum"],
+                    "soil": r["soil"],
+                    "smoke": r["smoke"],   # Needed for UI hydration!
+                    "sound": r["sound"],   # Needed for UI hydration!
+                    "v_bat": r["v_bat"],
+                    "soc": r["soc"],
+                    "sd": r["sd_used"]     # Needed for UI hydration!
+                })
+                
+        conn.close()
+        
+        # Reverse the data so it reads oldest-to-newest for the charts
+        data.reverse()
+        return jsonify(data)
+        
+    except Exception as e:
+        print(f"API History Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 def get_satellite_pos():
     sub = satellite.at(ts.now()).subpoint()
     return sub.latitude.degrees, sub.longitude.degrees
@@ -470,12 +541,43 @@ def read_serial_data():
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
                 
-                # --- ROUTE 1: TELEMETRY DATA ---
-                if line.startswith("TLM_RCV,"):
+                # --- ROUTE 1: THE LIVE BEACON (Heartbeat) ---
+                if line.startswith("BCN_RCV,"):
+                    # SIMULATING LOCAL HARDWARE: Measure Downlink RSSI right when packet arrives
+                    local_downlink_rssi = random.randint(-95, -40) 
                     
+                    try:
+                        parts = line.split(',')
+                        if len(parts) >= 11:
+                            data = {
+                                "type": "LIVE_BEACON",
+                                "rssi_gs": local_downlink_rssi,
+                                "timestamp": parts[2],
+                                "fdir_mode": parts[3],
+                                "payload_state": int(parts[4]),
+                                "obc_temp": float(parts[5]),
+                                "eps": {
+                                    "soc": float(parts[6]),
+                                    "v_bat": float(parts[7]),
+                                    "v_3v3": float(parts[8])
+                                },
+                                "env": {"pressure": float(parts[9])},
+                                "gps": {"alt": float(parts[10])}
+                            }
+                            # Get Live Map Position
+                            lat, lng = get_satellite_pos()
+                            data["lat"], data["lng"] = lat, lng
+                            
+                            socketio.emit('telemetry_update', data)
+                    except Exception as e:
+                        print(f"Beacon Parse error: {e}")
+
+                # --- ROUTE 2: HISTORICAL TELEMETRY (SD Card Dump) ---
+                elif line.startswith("TLM_RCV,"):
                     simulated_gs_rssi = random.randint(-95, -40)
                     line_with_rssi = line.replace("TLM_RCV,", f"TLM_RCV,{simulated_gs_rssi},", 1)
 
+                    # 1. Save to CSV Cold Backup
                     with open(tlm_filepath, 'a') as f:
                         f.write(line_with_rssi + "\n")
 
@@ -483,7 +585,7 @@ def read_serial_data():
                         parts = line_with_rssi.split(',')
                         if len(parts) >= 25: 
                             data = {
-                                "type": "TELEMETRY", 
+                                "type": "HISTORICAL_TELEMETRY", # <--- CHANGED TYPE!
                                 "rssi_gs": int(parts[1]), 
                                 "timestamp": parts[3], 
                                 "fdir_mode": parts[4], 
@@ -499,59 +601,44 @@ def read_serial_data():
                             }
                             
                             idx = 26 
-                            
-                            idx = 26 
-                            
-                            # --- NEW: Extract the 5 Digital IR Channels ---
                             if len(parts) >= idx + 5:
-                                data["ir_zones"] = [
-                                    int(parts[idx]), 
-                                    int(parts[idx+1]), 
-                                    int(parts[idx+2]), 
-                                    int(parts[idx+3]), 
-                                    int(parts[idx+4])
-                                ]
-                                
-                            lat, lng = get_satellite_pos()
-                            data["lat"], data["lng"] = lat, lng
+                                data["ir_zones"] = [int(parts[idx]), int(parts[idx+1]), int(parts[idx+2]), int(parts[idx+3]), int(parts[idx+4])]
                             
-                            # --- NEW: SAVE TO SQLITE DATABASE ---
+                            # 2. SAVE TO SQLITE DATABASE
                             db_path = os.path.join(BASE_DIR, 'forestguard.db')
-                            try:
-                                conn = sqlite3.connect(db_path)
-                                cursor = conn.cursor()
-                                cursor.execute('''
-                                    INSERT INTO telemetry (
-                                        timestamp, gs_rssi, fdir_mode, payload_state, obc_temp, payload_temp, rssi_uplink,
-                                        eps_soc, eps_v_bat, eps_v_3v3, eps_v_5v_1, eps_v_5v_2, eps_v_5v_3,
-                                        eps_i_in, eps_i_out, eps_i_payload, eps_i_comms, eps_temp,
-                                        env_pressure, env_humidity, gps_alt, obc_sd, payload_sd, image_res,
-                                        ir_0, ir_1, ir_2, ir_3, ir_4
-                                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                                ''', (
-                                    data["timestamp"], data["rssi_gs"], data["fdir_mode"], data["payload_state"],
-                                    data["obc_temp"], data["payload_temp"], data["rssi_uplink"],
-                                    data["eps"]["soc"], data["eps"]["v_bat"], data["eps"]["v_3v3"],
-                                    data["eps"]["v_5v_1"], data["eps"]["v_5v_2"], data["eps"]["v_5v_3"],
-                                    data["eps"]["i_in"], data["eps"]["i_out"], data["eps"]["i_payload"],
-                                    data["eps"]["i_comms"], data["eps"]["temp"],
-                                    data["env"]["pressure"], data["env"]["humidity"], data["gps"]["alt"],
-                                    data["sd"]["obc"], data["sd"]["payload"], data["resolution"],
-                                    data["ir_zones"][0], data["ir_zones"][1], data["ir_zones"][2],
-                                    data["ir_zones"][3], data["ir_zones"][4]
-                                ))
-                                conn.commit()
-                                conn.close()
-                            except Exception as e:
-                                print(f"DB Telemetry Insert Error: {e}")
-                            # ------------------------------------
+                            conn = sqlite3.connect(db_path)
+                            cursor = conn.cursor()
+                            cursor.execute('''
+                                INSERT INTO telemetry (
+                                    timestamp, gs_rssi, fdir_mode, payload_state, obc_temp, payload_temp, rssi_uplink,
+                                    eps_soc, eps_v_bat, eps_v_3v3, eps_v_5v_1, eps_v_5v_2, eps_v_5v_3,
+                                    eps_i_in, eps_i_out, eps_i_payload, eps_i_comms, eps_temp,
+                                    env_pressure, env_humidity, gps_alt, obc_sd, payload_sd, image_res,
+                                    ir_0, ir_1, ir_2, ir_3, ir_4
+                                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            ''', (
+                                data["timestamp"], data["rssi_gs"], data["fdir_mode"], data["payload_state"],
+                                data["obc_temp"], data["payload_temp"], data["rssi_uplink"],
+                                data["eps"]["soc"], data["eps"]["v_bat"], data["eps"]["v_3v3"],
+                                data["eps"]["v_5v_1"], data["eps"]["v_5v_2"], data["eps"]["v_5v_3"],
+                                data["eps"]["i_in"], data["eps"]["i_out"], data["eps"]["i_payload"],
+                                data["eps"]["i_comms"], data["eps"]["temp"],
+                                data["env"]["pressure"], data["env"]["humidity"], data["gps"]["alt"],
+                                data["sd"]["obc"], data["sd"]["payload"], data["resolution"],
+                                data["ir_zones"][0], data["ir_zones"][1], data["ir_zones"][2],
+                                data["ir_zones"][3], data["ir_zones"][4]
+                            ))
+                            conn.commit()
+                            conn.close()
 
+                            # 3. Send to UI (UI will ONLY scan this for alarms, not update gauges)
                             socketio.emit('telemetry_update', data)
                     except Exception as e: 
-                        print(f"Parse error: {e}")
+                        print(f"TLM Parse error: {e}")
                 
                 # --- ROUTE 2: GSN HISTORICAL DATA REQUEST ---
                 elif line.startswith("GSN_RCV,"):
+                    # 1. Save to CSV Cold Backup
                     with open(gsn_filepath, 'a') as f:
                         f.write(line + "\n")
                     
@@ -574,32 +661,30 @@ def read_serial_data():
                                     "sd": float(parts[11])
                                 }
                             }
-                          
-                            # --- NEW: SAVE TO SQLITE DATABASE ---
+                            
+                            # 2. SAVE TO SQLITE DATABASE
                             db_path = os.path.join(BASE_DIR, 'forestguard.db')
-                            try:
-                                conn = sqlite3.connect(db_path)
-                                cursor = conn.cursor()
-                                cursor.execute('''
-                                    INSERT INTO gsn (
-                                        timestamp, node_id, rssi, temp, hum, soil, smoke, sound, v_bat, soc, sd_used
-                                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                                ''', (
-                                    gsn_data["gsn"]["timestamp"], gsn_data["gsn"]["node_id"], gsn_data["gsn"]["rssi"],
-                                    gsn_data["gsn"]["temp"], gsn_data["gsn"]["hum"], gsn_data["gsn"]["soil"],
-                                    gsn_data["gsn"]["smoke"], gsn_data["gsn"]["sound"], gsn_data["gsn"]["v_bat"],
-                                    gsn_data["gsn"]["soc"], gsn_data["gsn"]["sd"]
-                                ))
-                                conn.commit()
-                                conn.close()
-                            except Exception as e:
-                                print(f"DB GSN Insert Error: {e}")
-                            # ------------------------------------
+                            conn = sqlite3.connect(db_path)
+                            cursor = conn.cursor()
+                            cursor.execute('''
+                                INSERT INTO gsn (
+                                    timestamp, node_id, rssi, temp, hum, soil, smoke, sound, v_bat, soc, sd_used
+                                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                            ''', (
+                                gsn_data["gsn"]["timestamp"], gsn_data["gsn"]["node_id"], gsn_data["gsn"]["rssi"],
+                                gsn_data["gsn"]["temp"], gsn_data["gsn"]["hum"], gsn_data["gsn"]["soil"],
+                                gsn_data["gsn"]["smoke"], gsn_data["gsn"]["sound"], gsn_data["gsn"]["v_bat"],
+                                gsn_data["gsn"]["soc"], gsn_data["gsn"]["sd"]
+                            ))
+                            conn.commit()
+                            conn.close()
 
+                            # 3. Send to UI (UI will debounce and update the boxes)
                             socketio.emit('telemetry_update', gsn_data)
                     except Exception as e:
-                        print(f"GSN Parse error: {e}")
-                
+                        print(f"GSN Parse/DB error: {e}")
+
+
                 # --- ROUTE 3: IMAGE CATALOG REQUEST ---
                 elif line.startswith("IMG_LIST:"):
                     files = line.split(":", 1)[1]

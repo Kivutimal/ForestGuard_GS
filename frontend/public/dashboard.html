@@ -229,8 +229,13 @@
         <section class="panel" style="grid-column: 1 / -1;">
             <div class="panel-header-flex" style="flex-wrap: wrap; gap: 15px;">
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <span>📊 Downlinked Telemetry</span>
-                    <span id="chart-mode-badge" class="badge" style="background:rgba(0,255,0,0.1); color:var(--success-green); border-color:var(--success-green);">ACTIVE DOWNLINK</span>
+                    <span>📊 Telemetry & GSN Charts</span>
+                    <!-- NEW: Interactive Mode Toggle -->
+                    <div style="display:flex; background:rgba(0,0,0,0.4); border-radius:4px; overflow:hidden; border:1px solid #5a7080;">
+                        <button id="btn-mode-live" class="cmd-btn" style="border:none; border-radius:0; background:rgba(0,255,0,0.15); color:var(--success-green); padding:4px 12px; font-weight:bold;" onclick="setChartMode('live')">🔴 LIVE BEACON</button>
+                        <button id="btn-mode-hist" class="cmd-btn" style="border:none; border-radius:0; color:#8a9ba8; padding:4px 12px;" onclick="setChartMode('history')">💾 DATABASE HISTORY</button>
+                    </div>
+                    <button id="btn-refresh-hist" class="cmd-btn" style="display:none; padding:4px 8px; font-size:0.7rem;" onclick="loadHistoricalData()">Refresh DB</button>
                 </div>
                 
                 <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -240,6 +245,7 @@
                         <option value="eps_power">⚡ Power Flow (EPS)</option>
                         <option value="currents">🔌 Subsystem Currents</option>
                         <option value="env">🌍 Environment & GPS</option>
+                        <option value="gsn">🌳 GSN Node History</option>
                     </select>
                     <select id="chart-metric" class="payload-select" style="margin-bottom:0; padding:4px 8px; width:auto; font-size:0.75rem;" onchange="updateChartVisibility()">
                         <!-- Populated by JS -->

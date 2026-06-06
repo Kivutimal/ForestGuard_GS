@@ -6,9 +6,12 @@ import numpy as np
 import random
 import datetime
 import math
-from flask import Flask, send_from_directory, request, jsonify
+import sqlite3
+from werkzeug.security import check_password_hash 
+from flask import Flask, send_from_directory, request, jsonify, session, redirect, render_template 
 from flask_socketio import SocketIO
 from skyfield.api import load, EarthSatellite, wgs84
+from functools import wraps
 
 # ==============================================================================
 # CONFIGURATION
@@ -29,9 +32,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "../frontend/public"))
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=FRONTEND_DIR) # <-- Tell Flask where your HTML is
+app.secret_key = 'forestguard_super_secret_aerospace_key_2026' # <-- NEW: Required for sessions!
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-
 ser = None
 
 # ==============================================================================
@@ -168,15 +171,42 @@ def cv_change_detect(img_a, img_b):
     return dict(change_pct=round(cv2.countNonZero(thresh) / total * 100, 1), veg_before=round(va, 1), veg_after=round(vb, 1), veg_delta=round(vb - va, 1), bare_before=round(ba, 1), bare_after=round(bb, 1), bare_delta=round(bb - ba, 1), change_regions=len([c for c in contours if cv2.contourArea(c) > total * 0.005]), change_boxes=get_regions(thresh, (h, w), label='Changed area'), new_bare_regions=get_regions(new_bare, (h, w), label='Newly cleared'))
 
 # ==============================================================================
-# FLASK ROUTES
+# FLASK ROUTES & SECURITY
 # ==============================================================================
+def login_required(role_required=None):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # 1. Check if they have an active session (cookie)
+            if 'username' not in session:
+                return redirect('/login')
+            
+            # 2. Check if they have the right clearance level
+            user_role = session.get('role')
+            if role_required == 'commander' and user_role != 'commander':
+                # ---> NEW: Send them to the Access Denied page! <---
+                return redirect('/unauthorized.html')
+                
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
 @app.route('/')
 @app.route('/index.html')
-def index(): return send_from_directory(FRONTEND_DIR, 'index.html')
+def index(): 
+    # Public route - anyone can see the tracker!
+    return send_from_directory(FRONTEND_DIR, 'index.html')
+
 @app.route('/dashboard.html')
-def dashboard(): return send_from_directory(FRONTEND_DIR, 'dashboard.html')
+@login_required() # <-- LOCKED: Requires any valid login
+def dashboard(): 
+    return send_from_directory(FRONTEND_DIR, 'dashboard.html')
+
 @app.route('/control.html')
-def control(): return send_from_directory(FRONTEND_DIR, 'control.html')
+@login_required(role_required='commander') # <-- STRICT LOCK: Requires Admin!
+def control(): 
+    return send_from_directory(FRONTEND_DIR, 'control.html')
+
 @app.route('/<path:filename>')
 def serve_static(filename): return send_from_directory(FRONTEND_DIR, filename)
 
@@ -186,6 +216,54 @@ def list_samples(): return jsonify(sorted([f for f in os.listdir(SAMPLES_DIR) if
 def serve_sample(filename): return send_from_directory(SAMPLES_DIR, filename)
 
 @app.route('/api/analyze', methods=['POST'])
+# ==============================================================================
+# FLASK ROUTES & SECURITY
+# ==============================================================================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    # --- NEW FIX: Check if they are ALREADY logged in! ---
+    if 'username' in session:
+        # If they already have an ID card, bypass the login screen entirely
+        if session.get('role') == 'commander':
+            return redirect('/control.html')
+        else:
+            return redirect('/dashboard.html')
+    # -----------------------------------------------------
+
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        db_path = os.path.join(BASE_DIR, 'forestguard.db')
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT password_hash, role FROM users WHERE username=?", (username,))
+            user = cursor.fetchone()
+            conn.close()
+
+            if user and check_password_hash(user[0], password):
+                session['username'] = username
+                session['role'] = user[1]
+                
+                if user[1] == 'commander':
+                    return redirect('/control.html')
+                else:
+                    return redirect('/dashboard.html')
+            else:
+                error = "Invalid Operator ID or Passcode."
+        else:
+            error = "Database offline. Run init_db.py first."
+
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear() # Destroys the cookie
+    return redirect('/')
+
 def analyze_image():
     req_data = request.get_json()
     filename = req_data.get('filename', '')
@@ -280,21 +358,94 @@ def get_satellite_pos():
     return sub.latitude.degrees, sub.longitude.degrees
 
 # ==============================================================================
-# WEBSOCKET COMMAND UPLINK
+# WEBSOCKET COMMAND UPLINK & AUDIT LOG
 # ==============================================================================
 @socketio.on('send_command')
 def handle_command(data):
     cmd = data.get('cmd')
+    
+    # 1. Grab the username of the operator who clicked the button
+    operator = session.get('username', 'system') 
+    
+    # 2. Log this action to the Database Audit Trail
+    db_path = os.path.join(BASE_DIR, 'forestguard.db')
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO command_log (username, command_text) VALUES (?, ?)", (operator, cmd))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Audit Log Error: {e}")
+
+    # 3. Transmit the command to the satellite via LoRa (Serial)
     if ser and ser.is_open:
         try:
             full_cmd = f"{cmd}\n"
             ser.write(full_cmd.encode('utf-8'))
-            socketio.emit('terminal_log', {"msg": f"> {cmd}", "type": "tx"})
+            socketio.emit('terminal_log', {"msg": f"> {cmd} (Operator: {operator})", "type": "tx"})
         except Exception as e:
             socketio.emit('terminal_log', {"msg": f"ERROR: {e}", "type": "error"})
     else:
-        socketio.emit('terminal_log', {"msg": "ERROR: Serial Port Not Open", "type": "error"})
+        # Show it in the UI terminal even if the hardware isn't plugged in yet!
+        socketio.emit('terminal_log', {"msg": f"> {cmd} (Operator: {operator}) [NO HARDWARE]", "type": "tx"})
+# ==============================================================================
+# ALARM & EVENT LOGGING ARCHITECTURE
+# ==============================================================================
+@app.route('/api/active_alarms', methods=['GET'])
+@login_required()
+def get_active_alarms():
+    """Fetches all un-acknowledged alarms so they survive a page refresh!"""
+    db_path = os.path.join(BASE_DIR, 'forestguard.db')
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # Fetch alarms where acknowledged is 0 (False)
+    cursor.execute("SELECT id, timestamp, source, message, level FROM alarms WHERE acknowledged = 0 ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    alarms = [{"id": r[0], "timestamp": r[1], "source": r[2], "message": r[3], "level": r[4]} for r in rows]
+    return jsonify(alarms)
 
+@socketio.on('trigger_alarm')
+def handle_trigger_alarm(data):
+    """Saves a newly detected alarm to the database."""
+    db_path = os.path.join(BASE_DIR, 'forestguard.db')
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Prevent spam: Only insert if this exact un-acknowledged alarm doesn't already exist
+    cursor.execute("SELECT id FROM alarms WHERE source=? AND message=? AND acknowledged=0", (data['source'], data['message']))
+    if cursor.fetchone() is None:
+        cursor.execute("INSERT INTO alarms (timestamp, source, message, level) VALUES (?, ?, ?, ?)",
+                       (data['timestamp'], data['source'], data['message'], data['level']))
+        conn.commit()
+        alarm_id = cursor.lastrowid
+        
+        # Broadcast the new alarm back to ALL connected operators so it pops up on their screens
+        data['id'] = alarm_id
+        socketio.emit('new_alarm_broadcast', data)
+        
+    conn.close()
+
+@socketio.on('acknowledge_alarm')
+def handle_ack_alarm(data):
+    """Marks an alarm as acknowledged in the DB and removes it from screens."""
+    alarm_id = data.get('id')
+    operator = session.get('username', 'system')
+    
+    db_path = os.path.join(BASE_DIR, 'forestguard.db')
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Update the database to show WHO acknowledged it and WHEN
+    cursor.execute("UPDATE alarms SET acknowledged = 1, ack_by = ?, ack_time = CURRENT_TIMESTAMP WHERE id = ?", (operator, alarm_id))
+    conn.commit()
+    conn.close()
+    
+    # Tell all connected browsers to remove this alarm from their screens
+    socketio.emit('remove_alarm_broadcast', {"id": alarm_id, "operator": operator})
+    socketio.emit('terminal_log', {"msg": f"✅ Alarm #{alarm_id} acknowledged by {operator}", "type": "rx"})
 # ==============================================================================
 # SERIAL THREAD (Data Downlink & Routing)
 # ==============================================================================
@@ -306,7 +457,7 @@ def read_serial_data():
     gsn_filepath = os.path.join(BASE_DIR, f"GSN_{now_str}.csv")
     
     with open(tlm_filepath, 'a') as f:
-        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,SAT_RX_RSSI,SOC,V_BAT,V_3V3,V_5V,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,RESOLUTION,THERMAL_DATA_64...\n")
+        f.write("PACKET_TYPE,GS_RSSI,SAT_ID,TIMESTAMP,FDIR_MODE,PAYLOAD_STATE,OBC_T,PAYLOAD_T,SAT_RX_RSSI,SOC,V_BAT,V_3V3,V_5V_1,V_5V_2,V_5V_3,I_IN,I_OUT,I_PAY,I_COMMS,EPS_T,PRESSURE,HUMIDITY,GPS_ALT,OBC_SD_PCT,PAYLOAD_SD_PCT,RESOLUTION,IR_0,IR_1,IR_2,IR_3,IR_4\n")
 
     with open(gsn_filepath, 'a') as f:
         f.write("PACKET_TYPE,TIMESTAMP,NODE_ID,RSSI,TEMP,HUMIDITY,SOIL,SMOKE,SOUND,V_BAT,SOC,SD_PCT\n")
@@ -349,11 +500,52 @@ def read_serial_data():
                             
                             idx = 26 
                             
-                            if len(parts) >= idx + 64:
-                                data["thermal"] =[float(p) for p in parts[idx:idx+64]]
+                            idx = 26 
+                            
+                            # --- NEW: Extract the 5 Digital IR Channels ---
+                            if len(parts) >= idx + 5:
+                                data["ir_zones"] = [
+                                    int(parts[idx]), 
+                                    int(parts[idx+1]), 
+                                    int(parts[idx+2]), 
+                                    int(parts[idx+3]), 
+                                    int(parts[idx+4])
+                                ]
                                 
                             lat, lng = get_satellite_pos()
                             data["lat"], data["lng"] = lat, lng
+                            
+                            # --- NEW: SAVE TO SQLITE DATABASE ---
+                            db_path = os.path.join(BASE_DIR, 'forestguard.db')
+                            try:
+                                conn = sqlite3.connect(db_path)
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    INSERT INTO telemetry (
+                                        timestamp, gs_rssi, fdir_mode, payload_state, obc_temp, payload_temp, rssi_uplink,
+                                        eps_soc, eps_v_bat, eps_v_3v3, eps_v_5v_1, eps_v_5v_2, eps_v_5v_3,
+                                        eps_i_in, eps_i_out, eps_i_payload, eps_i_comms, eps_temp,
+                                        env_pressure, env_humidity, gps_alt, obc_sd, payload_sd, image_res,
+                                        ir_0, ir_1, ir_2, ir_3, ir_4
+                                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                ''', (
+                                    data["timestamp"], data["rssi_gs"], data["fdir_mode"], data["payload_state"],
+                                    data["obc_temp"], data["payload_temp"], data["rssi_uplink"],
+                                    data["eps"]["soc"], data["eps"]["v_bat"], data["eps"]["v_3v3"],
+                                    data["eps"]["v_5v_1"], data["eps"]["v_5v_2"], data["eps"]["v_5v_3"],
+                                    data["eps"]["i_in"], data["eps"]["i_out"], data["eps"]["i_payload"],
+                                    data["eps"]["i_comms"], data["eps"]["temp"],
+                                    data["env"]["pressure"], data["env"]["humidity"], data["gps"]["alt"],
+                                    data["sd"]["obc"], data["sd"]["payload"], data["resolution"],
+                                    data["ir_zones"][0], data["ir_zones"][1], data["ir_zones"][2],
+                                    data["ir_zones"][3], data["ir_zones"][4]
+                                ))
+                                conn.commit()
+                                conn.close()
+                            except Exception as e:
+                                print(f"DB Telemetry Insert Error: {e}")
+                            # ------------------------------------
+
                             socketio.emit('telemetry_update', data)
                     except Exception as e: 
                         print(f"Parse error: {e}")
@@ -382,6 +574,28 @@ def read_serial_data():
                                     "sd": float(parts[11])
                                 }
                             }
+                          
+                            # --- NEW: SAVE TO SQLITE DATABASE ---
+                            db_path = os.path.join(BASE_DIR, 'forestguard.db')
+                            try:
+                                conn = sqlite3.connect(db_path)
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    INSERT INTO gsn (
+                                        timestamp, node_id, rssi, temp, hum, soil, smoke, sound, v_bat, soc, sd_used
+                                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                ''', (
+                                    gsn_data["gsn"]["timestamp"], gsn_data["gsn"]["node_id"], gsn_data["gsn"]["rssi"],
+                                    gsn_data["gsn"]["temp"], gsn_data["gsn"]["hum"], gsn_data["gsn"]["soil"],
+                                    gsn_data["gsn"]["smoke"], gsn_data["gsn"]["sound"], gsn_data["gsn"]["v_bat"],
+                                    gsn_data["gsn"]["soc"], gsn_data["gsn"]["sd"]
+                                ))
+                                conn.commit()
+                                conn.close()
+                            except Exception as e:
+                                print(f"DB GSN Insert Error: {e}")
+                            # ------------------------------------
+
                             socketio.emit('telemetry_update', gsn_data)
                     except Exception as e:
                         print(f"GSN Parse error: {e}")

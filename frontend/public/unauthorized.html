@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForestGuard | Access Denied</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #0b0c10;
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .error-box {
+            background: rgba(231, 76, 60, 0.1);
+            padding: 40px;
+            border-radius: 8px;
+            border-top: 4px solid #e74c3c;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: 400px;
+            text-align: center;
+        }
+        .error-box h1 {
+            color: #e74c3c;
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+            font-size: 2rem;
+        }
+        .error-box p {
+            color: #c5c6c7;
+            font-size: 0.95rem;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        .return-btn {
+            display: inline-block;
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            text-decoration: none;
+            box-sizing: border-box;
+        }
+        .return-btn:hover {
+            background: #e74c3c;
+            color: #0b0c10;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="error-box">
+        <h1>🛑 ACCESS DENIED</h1>
+        <p>
+            <strong>SECURITY VIOLATION:</strong><br>
+            Your current Operator ID does not have <em>Commander</em> clearance.<br><br>
+            Access to the Telecommand Control Panel is strictly prohibited.
+        </p>
+        <a href="/dashboard.html" class="return-btn">RETURN TO SECURE DASHBOARD</a>
+    </div>
+
+</body>
+</html>

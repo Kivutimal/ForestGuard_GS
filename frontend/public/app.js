@@ -1,5 +1,4 @@
-const socket = typeof io !== 'undefined' ? io('http://localhost:8000') : null;
-
+const socket = typeof io !== 'undefined' ? io() : null;
 // ==============================================================================
 // 1. CLOCK & MAP INITIALIZATION
 // ==============================================================================
@@ -229,85 +228,180 @@ function triggerEPSPulse() {
     });
 }
 
-function checkEPSAnomalies(eps, obc_temp, payload_temp, fdir_mode, payload_state, env) {
-    const alertBox = document.getElementById('eps-alert-box');
+function checkEPSAnomalies(eps, obc_temp, payload_temp, fdir_mode, payload_state, env, timestampStr) {
     const statusBadge = document.getElementById('system-status-badge');
-    
-    if (!alertBox || !statusBadge) return;
+    let hasAlert = false;
 
-    let alerts =[];
-
+    // FDIR & Temperatures
     if (fdir_mode === 'AUTO' && payload_state === 0 && (payload_temp > 50 || eps.soc < 20)) {
-        alerts.push("⚠️ <strong>FDIR AUTONOMY EVENT:</strong> OBC has autonomously commanded Payload power OFF.");
-    }
-    if (eps.soc <= 20) {
-        alerts.push("<strong>CRITICAL:</strong> SoC &lt; 20%. Manual Load Shedding recommended.");
+        pushToEventStack(timestampStr, 'FDIR', 'OBC autonomously commanded Payload OFF.', 'WARNING');
+        hasAlert = true;
     }
     if (payload_temp > 50) {
-        alerts.push(`<strong>WARNING:</strong> Payload Temp approaching thermal limits (${payload_temp.toFixed(1)}°C).`);
-    }
-    if (eps.v_3v3 < 3.0) {
-        alerts.push("<strong>CRITICAL BROWNOUT:</strong> 3.3V bus unstable. FDIR Reset imminent.");
-    }
-    if (env && env.pressure < 800) {
-        alerts.push("<strong>CRITICAL:</strong> Internal pressure dropping. Hull integrity compromise possible.");
-    }
-    if (env && env.humidity > 40) {
-        alerts.push("<strong>WARNING:</strong> High internal humidity. Condensation risk to electronics.");
+        pushToEventStack(timestampStr, 'THERMAL', `Payload Temp approaching limits (${payload_temp.toFixed(1)}°C).`, 'WARNING');
+        hasAlert = true;
     }
 
-    if (alerts.length > 0) {
-        alertBox.style.display = 'block'; 
-        alertBox.innerHTML = alerts.join('<br>');
-        statusBadge.className = 'badge danger-alert'; 
-        statusBadge.style.display = 'inline-block'; 
-        statusBadge.innerText = '❌ System: ALERTS ACTIVE';
-    } else {
-        alertBox.style.display = 'none';
-        if (document.getElementById('gsn-alert-box')?.style.display === 'none') {
+    // EPS Power & Buses
+    if (eps.soc <= 20) {
+        pushToEventStack(timestampStr, 'EPS', `Battery SoC Critical (${eps.soc}%). Load Shedding recommended.`, 'CRITICAL');
+        hasAlert = true;
+    }
+    if (eps.v_3v3 < 3.0) {
+        pushToEventStack(timestampStr, 'EPS', `3.3V Reg Bus unstable (${eps.v_3v3.toFixed(2)}V). Brownout risk.`, 'CRITICAL');
+        hasAlert = true;
+    }
+    // ---> NEW: Checking all three 5V buses! <---
+    if (eps.v_5v_1 < 4.5 && payload_state === 1) {
+        pushToEventStack(timestampStr, 'EPS', `5V_1 Payload Bus voltage sag (${eps.v_5v_1.toFixed(2)}V).`, 'WARNING');
+        hasAlert = true;
+    }
+    if (eps.v_5v_2 < 4.5) {
+        pushToEventStack(timestampStr, 'EPS', `5V_2 Comms Bus degraded (${eps.v_5v_2.toFixed(2)}V).`, 'CRITICAL');
+        hasAlert = true;
+    }
+    if (eps.v_5v_3 < 4.5) {
+        pushToEventStack(timestampStr, 'EPS', `5V_3 Aux Bus degraded (${eps.v_5v_3.toFixed(2)}V).`, 'WARNING');
+        hasAlert = true;
+    }
+
+    // Environment
+    if (env && env.pressure < 800) {
+        pushToEventStack(timestampStr, 'ENV', 'Internal pressure dropping. Integrity compromise possible.', 'CRITICAL');
+        hasAlert = true;
+    }
+    if (env && env.humidity > 40) {
+        pushToEventStack(timestampStr, 'ENV', 'High internal humidity. Condensation risk to electronics.', 'WARNING');
+        hasAlert = true;
+    }
+
+    // Update Status Badge
+    if (statusBadge) {
+        if (hasAlert) {
+            statusBadge.className = 'badge danger-alert'; 
+            statusBadge.innerText = '❌ System: ALERTS ACTIVE';
+        } else {
+            // Only set nominal if the GSN isn't also throwing errors
             statusBadge.className = 'badge nominal'; 
             statusBadge.innerText = '✅ System: NOMINAL'; 
-            statusBadge.style.display = 'inline-block';
         }
     }
 }
 
 function checkGSNAnomalies(gsn) {
-    const alertBox = document.getElementById('gsn-alert-box');
-    const statusBadge = document.getElementById('system-status-badge');
-    if (!alertBox) return;
+    if (!gsn) return;
+    const timeStr = String(gsn.timestamp).replace("_", " ");
+    let hasAlert = false;
 
-    let alerts =[];
-
-    if (gsn) {
-        if (gsn.smoke === 1) {
-            alerts.push(`<strong>🔥 GSN FIRE ALERT:</strong> Node ${gsn.node_id} has detected active smoke!`);
-        }
-        if (gsn.sound === 1) {
-            alerts.push(`<strong>🪚 GSN LOGGING ALERT:</strong> Node ${gsn.node_id} has detected chainsaw/vehicle acoustics!`);
-        }
-        if (gsn.soc < 15) {
-            alerts.push(`<strong>⚠️ GSN MAINTENANCE:</strong> Node ${gsn.node_id} battery is critically low (${gsn.soc}%).`);
-        }
+    if (gsn.smoke === 1) {
+        pushToEventStack(timeStr, 'GSN', `Node ${gsn.node_id} detected active SMOKE!`, 'CRITICAL');
+        hasAlert = true;
+    }
+    if (gsn.sound === 1) {
+        pushToEventStack(timeStr, 'GSN', `Node ${gsn.node_id} detected chainsaw acoustics!`, 'WARNING');
+        hasAlert = true;
+    }
+    if (gsn.soc < 15) {
+        pushToEventStack(timeStr, 'GSN', `Node ${gsn.node_id} battery critically low (${gsn.soc}%).`, 'WARNING');
+        hasAlert = true;
     }
 
-    if (alerts.length > 0) {
-        alertBox.style.display = 'block'; 
-        alertBox.innerHTML = alerts.join('<br>');
-        if(statusBadge) {
-            statusBadge.className = 'badge danger-alert'; 
-            statusBadge.style.display = 'inline-block'; 
-            statusBadge.innerText = '❌ System: ALERTS ACTIVE';
-        }
-    } else {
-        alertBox.style.display = 'none';
-        if (document.getElementById('eps-alert-box')?.style.display === 'none') {
-            statusBadge.className = 'badge nominal'; 
-            statusBadge.innerText = '✅ System: NOMINAL'; 
-            statusBadge.style.display = 'inline-block';
-        }
+    // Make sure the main status badge reflects GSN errors too
+    const statusBadge = document.getElementById('system-status-badge');
+    if (hasAlert && statusBadge) {
+        statusBadge.className = 'badge danger-alert'; 
+        statusBadge.innerText = '❌ System: ALERTS ACTIVE';
     }
 }
+// ==============================================================================
+// DATABASE-BACKED LATCHING ALARM STACK
+// ==============================================================================
+
+function pushToEventStack(timestamp, source, message, level) {
+    // Instead of drawing it immediately, send it to Python to be saved in the database!
+    if (socket && socket.connected) {
+        socket.emit('trigger_alarm', {
+            timestamp: timestamp,
+            source: source,
+            message: message,
+            level: level
+        });
+    }
+}
+
+// Draw the HTML Card when Python confirms it is in the database
+function renderAlarmCard(alarm) {
+    const stack = document.getElementById('event-log-stack');
+    if (!stack) return;
+
+    // Prevent drawing duplicates if it already exists on screen
+    if (document.getElementById(`alarm-card-${alarm.id}`)) return;
+
+    let bgColor = alarm.level === 'CRITICAL' ? 'rgba(231,76,60,0.15)' : 'rgba(241,196,15,0.15)';
+    let borderColor = alarm.level === 'CRITICAL' ? '#e74c3c' : '#f1c40f';
+
+    const card = document.createElement('div');
+    card.id = `alarm-card-${alarm.id}`;
+    card.style.background = bgColor;
+    card.style.borderLeft = `4px solid ${borderColor}`;
+    card.style.padding = '10px';
+    card.style.borderRadius = '4px';
+    card.style.display = 'flex';
+    card.style.justifyContent = 'space-between';
+    card.style.alignItems = 'center';
+    card.style.fontSize = '0.85rem';
+
+    card.innerHTML = `
+        <div>
+            <span style="color:#8a9ba8; font-family:'Courier New', monospace; margin-right:10px;">[${alarm.timestamp}]</span>
+            <strong style="color:${borderColor}; margin-right:5px;">${alarm.source}:</strong> 
+            <span style="color:white;">${alarm.message}</span>
+        </div>
+        <button class="cmd-btn" style="padding:2px 8px; font-size:0.7rem; border-color:${borderColor}; color:${borderColor};" onclick="ackAlarm(${alarm.id})">Ack</button>
+    `;
+
+    stack.prepend(card);
+}
+
+// When the user clicks 'Ack'
+window.ackAlarm = function(id) {
+    if (socket && socket.connected) {
+        socket.emit('acknowledge_alarm', { id: id });
+    }
+};
+
+if (socket) {
+    // Listen for new alarms broadcasted from Python
+    socket.on('new_alarm_broadcast', (alarm) => {
+        renderAlarmCard(alarm);
+    });
+
+    // Listen for removal broadcasts (if you or someone else clicks Ack)
+    socket.on('remove_alarm_broadcast', (data) => {
+        const card = document.getElementById(`alarm-card-${data.id}`);
+        if (card) {
+            card.style.opacity = '0.5';
+            setTimeout(() => card.remove(), 300); // Small fade effect
+        }
+    });
+}
+
+// --- NEW: FETCH ALARMS ON PAGE LOAD SO THEY SURVIVE REFRESHES ---
+document.addEventListener("DOMContentLoaded", async () => {
+    // ... your other DOMContentLoaded logic ...
+    
+    // Fetch un-acked alarms from the database
+    if (document.getElementById('event-log-stack')) {
+        try {
+            const res = await fetch('/api/active_alarms');
+            const alarms = await res.json();
+            // Render them in reverse so the newest is at the top
+            alarms.reverse().forEach(a => renderAlarmCard(a));
+        } catch (e) {
+            console.log("No active alarms fetched.");
+        }
+    }
+});
 
 if (socket) {
     socket.on('telemetry_update', (data) => {
@@ -453,7 +547,7 @@ if (socket) {
                 }
             }
 
-            checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env);
+            checkEPSAnomalies(data.eps, data.obc_temp, data.payload_temp, data.fdir_mode, data.payload_state, data.env, satTimeString);
             triggerEPSPulse();
 
             // --- CHART PUSH (ONLY during Telemetry updates to prevent zigzag lines) ---
@@ -489,8 +583,8 @@ if (socket) {
                 window.signalChart.update();
             }
 
-            if (data.thermal) {
-                updateThermalFromTelemetry(data.thermal);
+            if (data.ir_zones) {
+                updateIRSensorUI(data.ir_zones, data.payload_state);
             }
         }
         
@@ -858,193 +952,78 @@ function drawRegions(data) {
 }
 
 // ==============================================================================
-// 9. THERMAL SCAN TAB
+// 9. IR DETECTOR TAB (5-CHANNEL SWIR)
 // ==============================================================================
-const THERMAL_SCENARIOS = {
-    normal: { 
-        data:[
-            24.1,23.8,24.5,25.0,24.3,23.9,24.7,25.2,
-            24.8,25.1,24.6,23.7,24.2,25.4,24.9,24.0,
-            25.3,24.4,23.6,24.1,25.0,24.8,23.5,24.3,
-            24.0,25.2,24.7,23.9,24.4,25.1,24.6,23.8,
-            23.7,24.3,25.0,24.6,23.8,24.1,25.3,24.5,
-            24.9,23.5,24.2,25.1,24.7,23.6,24.0,25.4,
-            25.0,24.8,23.9,24.4,25.2,24.3,23.7,24.6,
-            24.1,25.3,24.5,23.8,24.0,25.1,24.7,23.9
-        ], 
-        interp: 'All cells within the 23–26°C baseline range. Canopy thermal regulation is functioning normally. No anomalies detected — forest health is nominal for this orbital pass.' 
-    },
-    stress: { 
-        data:[
-            26.2,27.1,28.4,29.0,28.7,27.5,26.8,26.1,
-            27.4,29.3,31.2,33.5,34.1,32.8,30.4,27.9,
-            28.1,31.0,35.6,38.2,39.4,37.1,33.2,29.3,
-            27.6,30.4,37.1,41.8,43.2,40.5,35.7,30.1,
-            27.2,29.8,35.4,40.1,42.6,39.3,34.1,29.4,
-            28.0,30.2,33.8,36.5,37.9,35.2,31.6,28.7,
-            27.1,28.6,30.4,32.1,33.0,31.4,29.2,27.5,
-            26.4,27.3,28.1,29.4,30.2,28.9,27.6,26.3
-        ], 
-        interp: 'Elevated temperatures in the central grid cells (rows 3–5, cols 3–6), peaking at 43°C. Consistent with drought stress or early sub-surface smouldering. Cross-reference with ground sensor humidity and CO₂ before escalating.' 
-    },
-    fire: { 
-        data:[
-            25.1,26.3,28.7,34.2,41.5,38.4,30.1,26.8,
-            26.4,29.8,36.4,48.7,62.3,57.8,42.1,30.5,
-            27.2,33.1,44.6,61.5,76.4,71.2,55.3,36.8,
-            28.0,35.4,52.3,69.8,81.5,78.4,61.2,41.3,
-            27.8,34.1,49.7,65.3,79.2,75.1,58.4,38.7,
-            26.9,31.5,42.8,55.6,68.4,63.2,48.9,33.4,
-            26.1,28.4,35.2,44.1,53.7,49.8,38.6,29.2,
-            25.4,26.7,29.3,35.8,42.4,39.1,31.5,27.1
-        ], 
-        interp: 'CRITICAL: Multiple cells exceeding the 70°C fire threshold. Active combustion detected — peak 81.5°C at grid[R4, C5]. Fire front spreading northeast based on thermal gradient. Notify Kenya Forest Service immediately.' 
-    }
-};
 
-function thermalColor(temp) {
-    const t = Math.max(0, Math.min(1, (temp - 20) / 60));
-    if (t < 0.2) {
-        return `rgb(0,${Math.round(t/0.2*130)},255)`;
-    }
-    if (t < 0.4) { 
-        const p = (t-0.2)/0.2; 
-        return `rgb(0,${Math.round(130+p*125)},${Math.round(255-p*255)})`; 
-    }
-    if (t < 0.6) { 
-        const p = (t-0.4)/0.2; 
-        return `rgb(${Math.round(p*255)},255,0)`; 
-    }
-    if (t < 0.8) { 
-        const p = (t-0.6)/0.2; 
-        return `rgb(255,${Math.round(255-p*160)},0)`; 
-    }
-    { 
-        const p = (t-0.8)/0.2; 
-        return `rgb(255,${Math.round(95-p*95)},0)`; 
-    }
-}
+function updateIRSensorUI(ir_array, payload_state) {
+    if (!ir_array || ir_array.length !== 5) return;
 
-function loadThermal(scenarioName) {
-    document.querySelectorAll('.thermal-scenario-row .cmd-btn').forEach(btn => {
-        btn.classList.remove('active');
-        btn.style.boxShadow = 'none';
-    });
-    
-    if (scenarioName === 'live') {
-        const liveBtn = document.getElementById('btn-live-thermal');
-        if(liveBtn) {
-            liveBtn.classList.add('active');
-            liveBtn.style.boxShadow = '0 0 5px rgba(102,252,241,0.3)';
-        }
-    }
+    const alarmBox = document.getElementById('ir-fire-alarm');
+    const angleText = document.getElementById('ir-fire-angle');
+    const stowedMsg = document.getElementById('ir-stowed-msg');
+    const statusBadge = document.getElementById('ir-status-badge');
+    const interpText = document.getElementById('ir-interp');
 
-    const scenario = THERMAL_SCENARIOS[scenarioName];
-    if (!scenario) return;
-    
-    const data = scenario.data;
-    const grid = document.getElementById('thermal-grid');
-    if (!grid) return; 
-    
-    grid.innerHTML = '';
-    
-    const max = Math.max(...data);
-    
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) {
-        sum += data[i];
-    }
-    const avg = sum / data.length;
-    
-    const hotspots =[];
-    for (let i = 0; i < data.length; i++) {
-        if (data[i] > 50) {
-            hotspots.push({
-                t: data[i],
-                row: Math.floor(i / 8) + 1,
-                col: (i % 8) + 1
-            });
-        }
-    }
-    
-    hotspots.sort((a, b) => b.t - a.t);
-
-    data.forEach((temp, i) => {
-        const cell = document.createElement('div'); 
-        cell.className = 'thermal-cell';
-        cell.style.background = thermalColor(temp); 
+    // Power budget logic: If payload is OFF, sensor is stowed.
+    if (payload_state === 0) {
+        alarmBox.style.display = 'none';
+        stowedMsg.style.display = 'block';
+        stowedMsg.innerText = "Sensor is STOWED. Will activate when Payload powers ON.";
         
-        if (temp > 45) {
-            cell.style.color = 'rgba(255,255,255,0.95)';
+        statusBadge.className = 'risk-badge risk-low';
+        statusBadge.innerText = 'POWER OFF';
+        interpText.innerText = 'To conserve the EPS power budget, the SWIR array remains offline until the next scheduled AOI pass.';
+        
+        // Dim the boxes
+        for (let i = 0; i < 5; i++) {
+            const box = document.getElementById(`ir-zone-${i}`);
+            if(box) {
+                box.style.borderColor = '#333';
+                box.style.color = '#555';
+                box.style.background = 'rgba(0,0,0,0.4)';
+                box.style.boxShadow = 'none';
+            }
+        }
+        return;
+    }
+
+    // Payload is ON! Let's check for 1s and 0s
+    stowedMsg.style.display = 'none';
+    let fireAngles = [];
+    const labels = ["L-60°", "L-30°", "NADIR (CENTER)", "R-30°", "R-60°"];
+
+    for (let i = 0; i < 5; i++) {
+        const box = document.getElementById(`ir-zone-${i}`);
+        if (!box) continue;
+
+        if (ir_array[i] === 1) {
+            // FIRE DETECTED in this zone!
+            box.style.borderColor = '#e74c3c';
+            box.style.color = '#fff';
+            box.style.background = 'rgba(231,76,60,0.8)';
+            box.style.boxShadow = '0 0 15px rgba(231,76,60,0.6)';
+            fireAngles.push(labels[i]);
         } else {
-            cell.style.color = 'rgba(0,0,0,0.75)';
+            // Nominal zone
+            box.style.borderColor = '#66fcf1';
+            box.style.color = '#66fcf1';
+            box.style.background = 'rgba(0,0,0,0.4)';
+            box.style.boxShadow = 'none';
         }
-        
-        cell.innerText = Math.round(temp); 
-        cell.title = `[R${Math.floor(i/8)+1}, C${(i%8)+1}] ${temp.toFixed(1)}°C`;
-        
-        if (temp > 70) {
-            cell.classList.add('cell-fire'); 
-        } else if (temp > 50) {
-            cell.classList.add('cell-hot');
-        }
-        
-        grid.appendChild(cell);
-    });
-    
-    document.getElementById('t-max').innerText = max.toFixed(1) + '°C'; 
-    document.getElementById('t-max').style.color = thermalColor(max);
-    
-    document.getElementById('t-avg').innerText = avg.toFixed(1) + '°C'; 
-    document.getElementById('t-hotspots').innerText = hotspots.length;
-    
-    let riskLevel = 'low';
-    if (max > 70) {
-        riskLevel = 'critical';
-    } else if (max > 50) {
-        riskLevel = 'high';
-    } else if (max > 38) {
-        riskLevel = 'medium';
     }
-    
-    setRiskBadge('t-risk', riskLevel);
-    document.getElementById('t-interp').innerText = scenario.interp;
 
-    const listEl = document.getElementById('t-hotspot-list');
-    
-    if (hotspots.length > 0) {
-        listEl.innerHTML = hotspots.map(h => {
-            let textColor = h.t > 70 ? '#e74c3c' : '#f1c40f';
-            let riskClass = h.t > 70 ? 'critical' : (h.t > 55 ? 'high' : 'medium');
-            let riskText = h.t > 70 ? 'FIRE' : (h.t > 55 ? 'HOT' : 'WARM');
-            
-            return `
-            <div class="hotspot-row">
-                <span>[R${h.row}, C${h.col}]</span>
-                <span style="font-family:monospace; color:${textColor}; font-weight:bold;">
-                    ${h.t.toFixed(1)}°C
-                </span>
-                <span class="risk-badge risk-${riskClass}">
-                    ${riskText}
-                </span>
-            </div>`;
-        }).join('');
-    } else { 
-        listEl.innerHTML = '<span style="color:var(--success-green); font-size:0.75rem;">✓ No hotspots detected.</span>'; 
-    }
-}
-
-function updateThermalFromTelemetry(thermalArray) {
-    if (!thermalArray || thermalArray.length !== 64) return;
-    
-    THERMAL_SCENARIOS['live'] = { 
-        data: thermalArray, 
-        interp: 'Live ESP32 Downlink — current orbital pass.' 
-    };
-    
-    const payloadThermal = document.getElementById('payload-thermal');
-    if (payloadThermal && payloadThermal.style.display !== 'none') {
-        loadThermal('live');
+    if (fireAngles.length > 0) {
+        alarmBox.style.display = 'block';
+        angleText.innerText = fireAngles.join(" & ");
+        
+        statusBadge.className = 'risk-badge risk-critical';
+        statusBadge.innerText = 'ACTIVE ALARM';
+        interpText.innerHTML = `<strong>CRITICAL:</strong> High IR intensity detected in zones: ${fireAngles.join(", ")}. Initiating simultaneous high-resolution RGB capture to confirm anomaly.`;
+    } else {
+        alarmBox.style.display = 'none';
+        statusBadge.className = 'risk-badge risk-medium';
+        statusBadge.innerText = 'SCANNING (CLEAR)';
+        interpText.innerText = 'Payload is active. SWIR array is returning nominal baseline values. No thermal anomalies detected in the current swath.';
     }
 }
 

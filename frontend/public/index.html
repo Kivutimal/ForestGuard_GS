@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ForestGuard | Home</title>
+    
+    <!-- Leaflet Map Libraries for the Public Tracker -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -11,42 +16,51 @@
     <header>
         <div class="logo-area">
             <h1>🛰️ ForestGuard_Kenya</h1>
-            <div style="font-size:0.8rem; color:#8a9ba8; letter-spacing:1px; margin-top:2px;">-- Ground Station</div>
+            <div style="font-size:0.8rem; color:#8a9ba8; letter-spacing:1px; margin-top:2px;">-- Public Access Portal</div>
         </div>
         <div class="status-panel">
             <span id="mission-clock" class="badge">EAT: --:--:--</span>
             <span id="pass-status-badge" class="badge danger-alert" style="display:inline-block; border-color:#f1c40f; color:#f1c40f; background:rgba(241,196,15,0.1);">📡 LOS (Waiting for Pass)</span>
-            <span class="badge nominal" id="system-status-badge">✅ System: NOMINAL</span>
         </div>
     </header>
 
     <nav class="main-nav">
         <ul class="nav-links">
-            <li><a href="index.html" class="active">Home</a></li>
-            <li><a href="dashboard.html">Monitoring</a></li>
-            <li><a href="control.html">Control Panel</a></li>
+            <li><a href="/" class="active">Home</a></li>
+            <!-- Public visitors must go through login to access these -->
+            <li><a href="/login" style="color: #f1c40f; font-weight: bold;">🔒 Operator Login</a></li>
         </ul>
     </nav>
 
-    <main class="info-container">
-        <section class="hero-section">
-            <h1>Protecting Forests from Above</h1>
-            <p>Real-time nanosatellite telemetry and AI-assisted imaging designed to detect deforestation and forest fires across Kenya's ecosystems.</p>
+    <main class="info-container" style="max-width: 1200px; margin: 0 auto; padding: 20px;">
+        <section class="hero-section" style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: var(--neon-cyan); font-size: 2.5rem; margin-bottom: 10px;">Protecting Forests from Above</h1>
+            <p style="color: #c5c6c7; font-size: 1.1rem;">Real-time nanosatellite telemetry and AI-assisted imaging designed to detect deforestation and forest fires across Kenya's ecosystems.</p>
+        </section>
+
+        <!-- THE LIVE PUBLIC TRACKER -->
+        <section class="panel map-panel" style="margin-bottom: 30px;">
+            <div class="panel-header-flex">
+                <span>🌍 Live Orbital Tracker (Public Feed)</span>
+                <span class="badge nominal">LIVE</span>
+            </div>
+            <!-- app.js will automatically detect this ID and draw the map! -->
+            <div id="map-container" style="height: 400px; border-radius: 6px;"></div>
         </section>
 
         <!-- The Horizontal 3-Column Grid -->
-        <div class="info-grid">
-            <div class="info-card">
-                <h3>🌍 Orbital Tracking</h3>
-                <p>Live satellite position tracking on interactive maps using real-time TLE propagation.</p>
+        <div class="info-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+            <div class="info-card" style="background: rgba(0,0,0,0.4); padding: 20px; border-radius: 8px; border-top: 3px solid #66fcf1;">
+                <h3 style="color: #66fcf1; margin-top:0;">🌍 Orbital Tracking</h3>
+                <p style="color: #8a9ba8; font-size: 0.9rem;">Live satellite position tracking on interactive maps using real-time TLE propagation.</p>
             </div>
-            <div class="info-card">
-                <h3>🔥 Fire Detection</h3>
-                <p>Thermal analysis using AMG8833 sensors to identify forest hotspots with 10fps precision.</p>
+            <div class="info-card" style="background: rgba(0,0,0,0.4); padding: 20px; border-radius: 8px; border-top: 3px solid #e74c3c;">
+                <h3 style="color: #e74c3c; margin-top:0;">🔥 Fire Detection</h3>
+                <p style="color: #8a9ba8; font-size: 0.9rem;">Directional infrared analysis using a 5-channel flame sensor array to rapidly identify forest fire outbreaks.</p>
             </div>
-            <div class="info-card">
-                <h3>🌳 Forest Analysis</h3>
-                <p>Detecting illegal logging activity and land clearing via high-res RGB imaging payload.</p>
+            <div class="info-card" style="background: rgba(0,0,0,0.4); padding: 20px; border-radius: 8px; border-top: 3px solid #00ff00;">
+                <h3 style="color: #00ff00; margin-top:0;">🌳 Forest Analysis</h3>
+                <p style="color: #8a9ba8; font-size: 0.9rem;">Detecting illegal logging activity and land clearing via high-res RGB imaging payload.</p>
             </div>
         </div>
     </main>

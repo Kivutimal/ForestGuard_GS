@@ -25,9 +25,11 @@
 
     <nav class="main-nav">
         <ul class="nav-links">
-            <li><a href="index.html">Home</a></li>
-            <li><a href="dashboard.html" class="active">Monitoring</a></li>
-            <li><a href="control.html">Control Panel</a></li>
+            <li><a href="/">Home</a></li>
+            <li><a href="/dashboard.html" class="active">Monitoring</a></li>
+            <li><a href="/control.html">Control Panel</a></li>
+            <!-- NEW: Logout Button -->
+            <li style="margin-left: 20px;"><a href="/logout" style="color: #e74c3c; font-weight: bold;">🚪 Logout</a></li>
         </ul>
     </nav>
 
@@ -55,7 +57,6 @@
                 <span id="val-eps-state" class="badge" style="background:#1f2833; font-family:'Courier New', monospace;">⚖️ -- mA</span>
             </div>
             
-            <div id="eps-alert-box" style="display:none; margin-bottom:15px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;"></div>
 
             <div class="metrics-row">
                 <div class="metric-box">
@@ -175,8 +176,6 @@
                     </div>
                     <span id="val-gsn-node" class="badge" style="background:#1f2833;">NODE: --</span>
                 </div>
-                
-                <div id="gsn-alert-box" style="display:none; margin-bottom:15px; margin-top:10px; padding:10px; background:rgba(231,76,60,0.2); border-left:4px solid #e74c3c; border-radius:4px; color:white; font-size:0.85rem; line-height: 1.5;"></div>
 
                 <div class="metrics-row" style="margin-top: 10px;">
                     <div class="metric-box" style="padding:8px; border: 1px solid rgba(231,76,60,0.1);">
@@ -210,7 +209,23 @@
             </section>
         </div>
 
-        <!-- 📊 DOWNLINKED TELEMETRY CHART (SLEEK, NO DB REQUIRED) -->
+        <!-- 🚨 MISSION EVENT LOG (LATCHING ALARMS) -->
+        <section class="panel" style="grid-column: 1 / -1; border-left: 3px solid #e74c3c;">
+            <div class="panel-header-flex">
+                <span style="color:#e74c3c; font-weight:bold;">🚨 Mission Event Log (Latched Alarms)</span>
+                <button class="cmd-btn" onclick="document.getElementById('event-log-stack').innerHTML=''" style="font-size:0.75rem; padding:4px 10px; border-color:#8a9ba8; color:#8a9ba8;">Acknowledge All</button>
+            </div>
+            
+            <p style="font-size:0.8rem; color:#8a9ba8; margin-bottom:10px;">
+                Historical and live anomalies are permanently latched here until acknowledged by an operator.
+            </p>
+
+            <div id="event-log-stack" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 5px; background:rgba(0,0,0,0.3); border-radius:6px; padding:10px;">
+                <!-- Alarms will stack here automatically -->
+            </div>
+        </section>
+
+        <!-- 📊 DOWNLINKED TELEMETRY CHART -->
         <section class="panel" style="grid-column: 1 / -1;">
             <div class="panel-header-flex" style="flex-wrap: wrap; gap: 15px;">
                 <div style="display:flex; align-items:center; gap:10px;">
@@ -246,7 +261,7 @@
                 <span>📸 Payload Analyzer</span>
                 <div class="payload-tabs">
                     <button class="chart-btn active" onclick="switchPayloadTab('rgb')">🌍 RGB Analysis</button>
-                    <button class="chart-btn" onclick="switchPayloadTab('thermal')">🌡️ Thermal Scan</button>
+                    <button class="chart-btn" onclick="switchPayloadTab('thermal')">🔥 IR Detector</button>
                     <button class="chart-btn" onclick="switchPayloadTab('change')">🔍 Change Detection</button>
                 </div>
             </div>
@@ -341,55 +356,42 @@
                 </div>
             </div>
 
-            <!-- ── THERMAL SCAN TAB ── -->
+            <!-- ── IR DETECTOR TAB (5-CHANNEL SWIR) ── -->
             <div id="payload-thermal" class="payload-tab-content" style="display:none;">
                 <div class="payload-grid">
-                    <div class="payload-left">
-                        <div class="sub-label">AMG8833 · 8×8 grid · per orbital pass</div>
-                        <div class="thermal-grid-wrap">
-                            <div class="thermal-grid" id="thermal-grid"></div>
+                    <div class="payload-left" style="display:flex; flex-direction:column; justify-content:center;">
+                        <div class="sub-label" style="text-align:center; margin-bottom:20px;">5-Channel Flame Sensor Array (Digital IR)</div>
+                        
+                        <!-- The 5 IR Zones -->
+                        <div style="display:flex; justify-content:center; gap:10px; margin-bottom:30px;" id="ir-zone-container">
+                            <div class="ir-zone" id="ir-zone-0" style="padding:20px 10px; border:2px solid #66fcf1; border-radius:6px; text-align:center; color:#66fcf1; background:rgba(0,0,0,0.4);">[ L-60° ]</div>
+                            <div class="ir-zone" id="ir-zone-1" style="padding:20px 10px; border:2px solid #66fcf1; border-radius:6px; text-align:center; color:#66fcf1; background:rgba(0,0,0,0.4);">[ L-30° ]</div>
+                            <div class="ir-zone" id="ir-zone-2" style="padding:20px 10px; border:2px solid #66fcf1; border-radius:6px; text-align:center; color:#66fcf1; background:rgba(0,0,0,0.4);">[ CENTER ]</div>
+                            <div class="ir-zone" id="ir-zone-3" style="padding:20px 10px; border:2px solid #66fcf1; border-radius:6px; text-align:center; color:#66fcf1; background:rgba(0,0,0,0.4);">[ R-30° ]</div>
+                            <div class="ir-zone" id="ir-zone-4" style="padding:20px 10px; border:2px solid #66fcf1; border-radius:6px; text-align:center; color:#66fcf1; background:rgba(0,0,0,0.4);">[ R-60° ]</div>
                         </div>
-                        <div class="thermal-scale">
-                            <span>20°C</span>
-                            <div class="thermal-scale-bar"></div>
-                            <span>80°C</span>
+
+                        <!-- Fire Alarm Badge -->
+                        <div id="ir-fire-alarm" style="display:none; text-align:center; padding:15px; background:rgba(231,76,60,0.2); border:2px solid #e74c3c; border-radius:8px; color:white; font-size:1.2rem; font-weight:bold; letter-spacing:2px; animation: pulse 1s infinite;">
+                            🚨 FIRE DETECTED: <span id="ir-fire-angle">--</span> 🚨
                         </div>
                         
-                        <div class="sub-label" style="margin-top:12px;">Thermal Data Source</div>
-                        <div class="thermal-scenario-row">
-                            <button class="cmd-btn btn-sm active" id="btn-live-thermal" onclick="loadThermal('live')" style="border-color: #66fcf1; color: #66fcf1; box-shadow: 0 0 5px rgba(102,252,241,0.3);">🔴 Live (ESP32)</button>
-                            <span style="color:var(--text-silver); margin: 0 5px; align-self: center;">|</span>
-                            
-                            <button class="cmd-btn btn-sm" onclick="loadThermal('normal')">✅ Normal</button>
-                            <button class="cmd-btn btn-sm warning" onclick="loadThermal('stress')">⚠️ Heat stress</button>
-                            <button class="cmd-btn btn-sm danger" onclick="loadThermal('fire')">🔥 Fire</button>
+                        <div id="ir-stowed-msg" style="text-align:center; padding:15px; color:#8a9ba8; font-style:italic;">
+                            Sensor is STOWED. Will activate when Payload powers ON.
                         </div>
                     </div>
+                    
                     <div class="payload-right">
-                        <div class="metrics-row">
-                            <div class="metric-box">
-                                <div class="metric-big" id="t-max" style="color:#e74c3c">--°C</div>
-                                <div class="metric-sub">Max temp</div>
-                            </div>
-                            <div class="metric-box">
-                                <div class="metric-big" id="t-avg" style="color:#66fcf1">--°C</div>
-                                <div class="metric-sub">Grid average</div>
-                            </div>
-                            <div class="metric-box">
-                                <div class="metric-big" id="t-hotspots" style="color:#f1c40f">--</div>
-                                <div class="metric-sub">Hotspots &gt;50°C</div>
-                            </div>
-                        </div>
-                        <div class="sub-label">Fire risk</div>
-                        <span class="risk-badge" id="t-risk" style="margin-bottom:12px; display:inline-block;">--</span>
+                        <div class="sub-label">Sensor Status</div>
+                        <span class="risk-badge risk-low" id="ir-status-badge" style="margin-bottom:12px; display:inline-block;">STANDBY</span>
+                        
                         <div class="sub-label" style="margin-top:10px;">Interpretation</div>
-                        <div id="t-interp" style="font-size:0.8rem; line-height:1.7; padding:10px; background:rgba(0,0,0,0.3); border-radius:6px; border-left: 3px solid var(--neon-cyan);">
-                            Select a scenario to load a recorded thermal pass.
+                        <div id="ir-interp" style="font-size:0.8rem; line-height:1.7; padding:10px; background:rgba(0,0,0,0.3); border-radius:6px; border-left: 3px solid var(--neon-cyan);">
+                            Waiting for payload activation...
                         </div>
-                        <div class="sub-label" style="margin-top:14px;">Hotspot coordinates</div>
-                        <div id="t-hotspot-list" style="font-size:0.75rem;"></div>
-                        <div style="margin-top:14px; padding:10px; background:rgba(255,200,87,0.07); border-radius:6px; border-left:3px solid #f1c40f; font-size:0.75rem; color:#8a9ba8; line-height:1.7;">
-                            ⚠️ <strong style="color:#f1c40f;">Mission note:</strong> The AMG8833 captures one snapshot per orbital pass. Cross-reference hotspots with the ground sensor network.
+                        
+                        <div style="margin-top:20px; padding:10px; background:rgba(102,252,241,0.07); border-radius:6px; border-left:3px solid #66fcf1; font-size:0.75rem; color:#8a9ba8; line-height:1.7;">
+                            ℹ️ <strong style="color:#66fcf1;">Architecture Note:</strong> To strictly conserve the power budget, the IR subsystem operates in a simultaneous multispectral snapshot mode, powering up only during scheduled imaging passes.
                         </div>
                     </div>
                 </div>

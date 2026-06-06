@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ForestGuard | Secure Login</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #0b0c10;
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .login-box {
+            background: rgba(31, 40, 51, 0.8);
+            padding: 40px;
+            border-radius: 8px;
+            border-top: 4px solid #66fcf1;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: 350px;
+            text-align: center;
+        }
+        .login-box h2 {
+            color: #66fcf1;
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+        }
+        .login-box p {
+            color: #8a9ba8;
+            font-size: 0.85rem;
+            margin-bottom: 25px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            color: #c5c6c7;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #45a29e;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .input-group input:focus {
+            outline: none;
+            border-color: #66fcf1;
+            box-shadow: 0 0 8px rgba(102, 252, 241, 0.3);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            color: #66fcf1;
+            border: 1px solid #66fcf1;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+        }
+        .login-btn:hover {
+            background: #66fcf1;
+            color: #0b0c10;
+        }
+        .error-msg {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+            display: none; /* Controlled by Python */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-box">
+        <h2>🛰️ ForestGuard</h2>
+        <p>Ground Station Access Terminal</p>
+
+        <!-- Python will inject an error message here if login fails -->
+        {% if error %}
+        <div class="error-msg" style="display:block;">⚠️ {{ error }}</div>
+        {% endif %}
+
+        <form action="/login" method="POST">
+            <div class="input-group">
+                <label>Operator ID (Username)</label>
+                <input type="text" name="username" required autocomplete="off">
+            </div>
+            <div class="input-group">
+                <label>Passcode</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="login-btn">AUTHENTICATE</button>
+        </form>
+        
+        <div style="margin-top:20px; font-size:0.75rem; color:#5a7080;">
+            <a href="/" style="color:#45a29e; text-decoration:none;">← Return to Public Homepage</a>
+        </div>
+    </div>
+
+</body>
+</html>

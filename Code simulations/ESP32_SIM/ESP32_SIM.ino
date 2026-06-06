@@ -5,7 +5,7 @@
 #include <time.h> // Required for time string formatting
 
 unsigned long lastLoopTime = 0;
-unsigned long satelliteUnixTime = 1713170000; // Simulated start time
+unsigned long satelliteUnixTime = 1780580000; // Simulated start time
 
 bool inPass = false;
 unsigned long passTimer = 0;
@@ -194,6 +194,19 @@ void loop() {
         }
 
         // =========================================================
+        // SIMULATED CATASTROPHES (For UI Testing)
+        // =========================================================
+        // Gives a 2% chance every second for a major subsystem failure to occur
+        if (random(0, 100) < 2) {
+            int disaster = random(0, 5);
+            if (disaster == 0) eps_v_3v3 = 2.8;         // Trigger 3.3V Brownout Alarm
+            if (disaster == 1) eps_v_5v_2 = 4.1;        // Trigger 5V_2 Comms Bus Alarm
+            if (disaster == 2) env_pressure = 750.0;    // Trigger Pressure Drop Alarm
+            if (disaster == 3) env_humidity = 65.0;     // Trigger Condensation Alarm
+            if (disaster == 4) eps_soc = 15.0;          // Trigger Critical Battery Alarm
+        }
+        
+        // =========================================================
         // C. ORBIT DYNAMICS & FDIR
         // =========================================================
         if (inPass && (millis() - passTimer > PASS_DURATION)) {
@@ -202,8 +215,13 @@ void loop() {
             inPass = true; passTimer = millis();
         }
 
-        if (!inPass && random(0, 100) < 5 && payload_state == 0) payload_state = 1; 
-        else if (payload_state == 1 && random(0, 100) < 20) payload_state = 0; 
+        // ---> Randomly turns ON *during* the pass so you can see it! <---
+        if (inPass && random(0, 100) < 15 && payload_state == 0) {
+            payload_state = 1; 
+        }
+        else if (payload_state == 1 && random(0, 100) < 15) {
+            payload_state = 0; 
+        }
 
         if (!fdir_override) {
             if (payload_temp > 55.0 || eps_soc < 20.0) payload_state = 0; 
@@ -287,16 +305,35 @@ void loop() {
             Serial.print(payload_sd_used); Serial.print(",");
             Serial.print(image_resolution); Serial.print(",");
 
-            // Thermal Data Array
-            bool fireDetected = random(0, 100) < 15; 
-            int firePixel = random(0, 64); 
-            for (int i = 0; i < 64; i++) {
-                float pixelTemp = fireDetected && i == firePixel ? random(700, 900)/10.0 : random(200, 260)/10.0;
-                Serial.print(pixelTemp);
-                if (i < 63) Serial.print(",");
+           // ========================================================
+            // MULTISPECTRAL PAYLOAD DATA (5-Channel IR, 1s and 0s)
+            // ========================================================
+            int ir_vals[5] = {0, 0, 0, 0, 0}; 
+            
+            // IR sensor ONLY draws power and reads data if Payload is ON
+            if (payload_state == 1) {
+                bool fireDetected = random(0, 100) < 15; // 15% chance
+                if (fireDetected) {
+                    int center = random(0, 5); 
+                    ir_vals[center] = 1;       
+                    
+                    // Large fires trigger adjacent sensors
+                    bool largeFire = random(0, 100) < 50; 
+                    if (largeFire) {
+                        if (center > 0) ir_vals[center - 1] = 1;
+                        if (center < 4) ir_vals[center + 1] = 1;
+                    }
+                }
             }
+            
+            Serial.print(ir_vals[0]); Serial.print(","); 
+            Serial.print(ir_vals[1]); Serial.print(","); 
+            Serial.print(ir_vals[2]); Serial.print(","); 
+            Serial.print(ir_vals[3]); Serial.print(","); 
+            Serial.print(ir_vals[4]);                    
+            
             Serial.println(); // End of TLM_RCV Packet
-
+            
             // --- 2. TRANSMIT GSN PACKET (SEPARATE STREAM) ---
             gsn_sd_used += 0.005; 
             if(gsn_sd_used > 100.0) gsn_sd_used = 100.0;

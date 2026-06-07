@@ -107,15 +107,66 @@ void executeCommand(String cmd) {
             char pastTime[20];
             strftime(pastTime, sizeof(pastTime), "%Y%m%d_%H%M%S", tm_info);
             
+            // Create a fake intermittent Uplink RSSI (Only ~20% of rows will have a signal)
+            String simUplink = (random(0, 10) > 7) ? String(random(-95, -70)) : "";
+
+            // --- Dynamic Telemetry Simulator math ---
+            // Simulates realistic slight variations and noise on each historical point
+            float sim_obc_temp = 28.0 + (random(-20, 20) / 10.0);
+            float sim_pay_temp = (payload_state == 1) ? (45.0 + (random(-10, 10) / 10.0)) : (23.0 + (random(-15, 15) / 10.0));
+            float sim_soc = eps_soc - (i * 0.2) + (random(-5, 5) / 10.0); // Simulated minor SOC drift
+            sim_soc = constrain(sim_soc, 0.0, 100.0);
+            
+            float sim_v_bat = 6.0 + ((sim_soc / 100.0) * 2.4) - (random(0, 3) / 10.0);
+            float sim_v_3v3 = 3.3 + (random(-2, 2) / 100.0);
+            float sim_v_5v1 = (payload_state > 0) ? 4.90 + (random(-5, 5) / 100.0) : 5.02;
+            float sim_v_5v2 = 5.01 + (random(-2, 2) / 100.0);
+            float sim_v_5v3 = 5.02 + (random(-1, 1) / 100.0);
+            
+            int sim_i_in = random(800, 1200);
+            int sim_i_payload = (payload_state == 1) ? random(600, 800) : 0;
+            int sim_i_comms = random(250, 350);
+            int sim_i_obc = random(140, 160);
+            int sim_i_out = sim_i_payload + sim_i_comms + sim_i_obc;
+            
+            float sim_bat_temp = 20.0 + (random(-10, 10) / 10.0);
+            float sim_press = 1013.2 + (random(-5, 5) / 10.0);
+            float sim_hum = 12.0 + (random(-20, 20) / 10.0);
+            float sim_alt = 405.5 + (random(-15, 15) / 10.0);
+
             // Massive TLM_RCV string
-            Serial.print("TLM_RCV,FG-ALPHA,"); Serial.print(pastTime);
-            // Simulating a low battery (18.5) and a brownout (2.9V) so your Event Stack catches it!
-            Serial.println(",AUTO,0,29.5,24.0,-85,18.5,6.9,2.9,5.02,5.01,5.03,800,200,0,50,22.0,1013.2,12.0,405.0,12.4,45.1,1080,0,0,0,0,0");
+            Serial.print("TLM_RCV,FG-ALPHA,"); 
+            Serial.print(pastTime);
+            Serial.print(","); Serial.print(fdir_override ? "OVERRIDE" : "AUTO");
+            Serial.print(","); Serial.print(payload_state);
+            Serial.print(","); Serial.print(sim_obc_temp, 1);
+            Serial.print(","); Serial.print(sim_pay_temp, 1);
+            Serial.print(","); Serial.print(simUplink);
+            Serial.print(","); Serial.print(sim_soc, 1);
+            Serial.print(","); Serial.print(sim_v_bat, 2);
+            Serial.print(","); Serial.print(sim_v_3v3, 2);
+            Serial.print(","); Serial.print(sim_v_5v1, 2);
+            Serial.print(","); Serial.print(sim_v_5v2, 2);
+            Serial.print(","); Serial.print(sim_v_5v3, 2);
+            Serial.print(","); Serial.print(sim_i_in);
+            Serial.print(","); Serial.print(sim_i_out);
+            Serial.print(","); Serial.print(sim_i_payload);
+            Serial.print(","); Serial.print(sim_i_comms);
+            Serial.print(","); Serial.print(sim_bat_temp, 1);
+            Serial.print(","); Serial.print(sim_press, 1);
+            Serial.print(","); Serial.print(sim_hum, 1);
+            Serial.print(","); Serial.print(sim_alt, 1);
+            Serial.print(","); Serial.print(obc_sd_used, 1);
+            Serial.print(","); Serial.print(payload_sd_used, 1);
+            Serial.print(","); Serial.print(image_resolution);
+            Serial.println(",0,0,0,0,0"); // IR zones baseline as 0
+            
             delay(100); 
         }
         Serial.println("TLM_MSG,Telemetry SD Downlink Complete");
         isDownlinking = false; // Resume Live Beacon
     }
+
     else if (cmd == "REQ_GSN") {
         Serial.println("TLM_MSG,Opening GSN SD Card...");
         isDownlinking = true;
@@ -126,9 +177,33 @@ void executeCommand(String cmd) {
             char pastTime[20];
             strftime(pastTime, sizeof(pastTime), "%Y%m%d_%H%M%S", tm_info);
             
-            // Massive GSN_RCV string (Simulating a chainsaw acoustic alarm = 1)
+            // Create a fake intermittent GSN RSSI (Only ~30% of rows will have a signal)
+            String simGsnRssi = (random(0, 10) > 6) ? String(random(-90, -60)) : "";
+
+            // --- Dynamic GSN Sensor Math ---
+            // Simulates slight variations and noise on each GSN point
+            float sim_gsn_temp = 24.5 + (random(-15, 15) / 10.0);
+            float sim_gsn_hum = 75.0 + (random(-40, 40) / 10.0);
+            int sim_gsn_soil = 38 + random(-5, 10);
+            int sim_gsn_smoke = (random(0, 100) < 2) ? 1 : 0; // 2% chance of simulated smoke
+            int sim_gsn_sound = (random(0, 100) < 8) ? 1 : 0; // 8% chance of simulated chainsaw acoustic trigger
+            float sim_gsn_v_bat = 7.6 + (random(0, 60) / 100.0);
+            int sim_gsn_soc = 75 + random(-5, 20);
+            float sim_gsn_sd = 8.5 + (i * 0.01);
+
+            // Massive GSN_RCV string with dynamic variables
             Serial.print("GSN_RCV,"); Serial.print(pastTime);
-            Serial.println(",GSN-01,-75,25.1,76.4,40,0,1,7.78,84,8.5");
+            Serial.print(",GSN-01,");
+            Serial.print(simGsnRssi); 
+            Serial.print(","); Serial.print(sim_gsn_temp, 1);
+            Serial.print(","); Serial.print(sim_gsn_hum, 1);
+            Serial.print(","); Serial.print(sim_gsn_soil);
+            Serial.print(","); Serial.print(sim_gsn_smoke);
+            Serial.print(","); Serial.print(sim_gsn_sound);
+            Serial.print(","); Serial.print(sim_gsn_v_bat, 2);
+            Serial.print(","); Serial.print(sim_gsn_soc);
+            Serial.print(","); Serial.println(sim_gsn_sd, 1);
+            
             delay(100);
         }
         Serial.println("TLM_MSG,GSN SD Downlink Complete");

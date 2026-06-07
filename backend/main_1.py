@@ -361,22 +361,35 @@ def predict_pass():
 def get_historical_data(subsystem):
     """Fetches historical data from the database for the charts and UI hydration."""
     
-    # Optional parameter to limit how many rows we pull (default to 50)
-    limit = request.args.get('limit', 50, type=int)
+    limit = request.args.get('limit', 100, type=int)
+    start_time = request.args.get('start')
+    end_time = request.args.get('end')
     
     db_path = os.path.join(BASE_DIR, 'forestguard.db')
     data = []
     
     try:
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row # This lets us access columns by name!
+        conn.row_factory = sqlite3.Row # Access columns by name
         cursor = conn.cursor()
         
-        if subsystem == 'telemetry':
-            # Pull the most recent telemetry rows
-            cursor.execute("SELECT * FROM telemetry ORDER BY id DESC LIMIT ?", (limit,))
-            rows = cursor.fetchall()
+        # --- Build the dynamic time-aware query ---
+        query = f"SELECT * FROM {subsystem} "
+        params = []
+        
+        if start_time and end_time:
+            query += "WHERE timestamp >= ? AND timestamp <= ? "
+            params.extend([start_time, end_time])
             
+        query += "ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        # Execute the query ONCE!
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        
+        # Map the results based on which table we queried
+        if subsystem == 'telemetry':
             for r in rows:
                 data.append({
                     "timestamp": r["timestamp"],
@@ -387,19 +400,22 @@ def get_historical_data(subsystem):
                     "eps_temp": r["eps_temp"],
                     "eps_soc": r["eps_soc"],
                     "eps_v_bat": r["eps_v_bat"],
+                    "eps_v_3v3": r["eps_v_3v3"],
+                    "eps_v_5v_1": r["eps_v_5v_1"],
+                    "eps_v_5v_2": r["eps_v_5v_2"],
+                    "eps_v_5v_3": r["eps_v_5v_3"],
                     "eps_i_in": r["eps_i_in"],
                     "eps_i_out": r["eps_i_out"],
                     "eps_i_payload": r["eps_i_payload"],
                     "eps_i_comms": r["eps_i_comms"],
                     "env_pressure": r["env_pressure"],
                     "env_humidity": r["env_humidity"],
-                    "gps_alt": r["gps_alt"]
+                    "gps_alt": r["gps_alt"],
+                    "obc_sd": r["obc_sd"],
+                    "payload_sd": r["payload_sd"]
                 })
                 
         elif subsystem == 'gsn':
-            # Pull the most recent GSN rows
-            cursor.execute("SELECT * FROM gsn ORDER BY id DESC LIMIT ?", (limit,))
-            rows = cursor.fetchall()
             for r in rows:
                 data.append({
                     "timestamp": r["timestamp"],
@@ -407,11 +423,12 @@ def get_historical_data(subsystem):
                     "temp": r["temp"],
                     "hum": r["hum"],
                     "soil": r["soil"],
-                    "smoke": r["smoke"],   # Needed for UI hydration!
-                    "sound": r["sound"],   # Needed for UI hydration!
+                    "smoke": r["smoke"],   
+                    "sound": r["sound"],   
                     "v_bat": r["v_bat"],
                     "soc": r["soc"],
-                    "sd": r["sd_used"]     # Needed for UI hydration!
+                    "sd": r["sd_used"],
+                    "rssi": r["rssi"]  # <-- Maps the GSN Node RSSI!
                 })
                 
         conn.close()
@@ -574,33 +591,33 @@ def read_serial_data():
 
                 # --- ROUTE 2: HISTORICAL TELEMETRY (SD Card Dump) ---
                 elif line.startswith("TLM_RCV,"):
-                    simulated_gs_rssi = random.randint(-95, -40)
-                    line_with_rssi = line.replace("TLM_RCV,", f"TLM_RCV,{simulated_gs_rssi},", 1)
-
-                    # 1. Save to CSV Cold Backup
+                    # 1. Save to CSV Cold Backup (Exactly as it arrived from space)
                     with open(tlm_filepath, 'a') as f:
-                        f.write(line_with_rssi + "\n")
+                        f.write(line + "\n")
 
                     try:
-                        parts = line_with_rssi.split(',')
-                        if len(parts) >= 25: 
+                        parts = line.split(',')
+                        if len(parts) >= 24: 
+                            # Helper to safely parse blanks into NULLs
+                            def parse_int(val): return int(val) if val.strip() != "" else None
+                            
                             data = {
-                                "type": "HISTORICAL_TELEMETRY", # <--- CHANGED TYPE!
-                                "rssi_gs": int(parts[1]), 
-                                "timestamp": parts[3], 
-                                "fdir_mode": parts[4], 
-                                "payload_state": int(parts[5]), 
-                                "obc_temp": float(parts[6]),
-                                "payload_temp": float(parts[7]), 
-                                "rssi_uplink": int(parts[8]), 
-                                "eps": {"soc": float(parts[9]), "v_bat": float(parts[10]), "v_3v3": float(parts[11]), "v_5v_1": float(parts[12]), "v_5v_2": float(parts[13]), "v_5v_3": float(parts[14]),"i_in": int(parts[15]), "i_out": int(parts[16]), "i_payload": int(parts[17]), "i_comms": int(parts[18]), "temp": float(parts[19])},
-                                "env": {"pressure": float(parts[20]), "humidity": float(parts[21])},
-                                "gps": {"alt": float(parts[22])},
-                                "sd": {"obc": float(parts[23]), "payload": float(parts[24])},
-                                "resolution": int(parts[25]) 
+                                "type": "HISTORICAL_TELEMETRY", 
+                                "rssi_gs": None, # <-- Physically accurate! We don't record local RSSI in history.
+                                "timestamp": parts[2], 
+                                "fdir_mode": parts[3], 
+                                "payload_state": int(parts[4]), 
+                                "obc_temp": float(parts[5]),
+                                "payload_temp": float(parts[6]), 
+                                "rssi_uplink": parse_int(parts[7]), # <-- Safely handles blanks
+                                "eps": {"soc": float(parts[8]), "v_bat": float(parts[9]), "v_3v3": float(parts[10]), "v_5v_1": float(parts[11]), "v_5v_2": float(parts[12]), "v_5v_3": float(parts[13]),"i_in": int(parts[14]), "i_out": int(parts[15]), "i_payload": int(parts[16]), "i_comms": int(parts[17]), "temp": float(parts[18])},
+                                "env": {"pressure": float(parts[19]), "humidity": float(parts[20])},
+                                "gps": {"alt": float(parts[21])},
+                                "sd": {"obc": float(parts[22]), "payload": float(parts[23])},
+                                "resolution": int(parts[24]) 
                             }
                             
-                            idx = 26 
+                            idx = 25 
                             if len(parts) >= idx + 5:
                                 data["ir_zones"] = [int(parts[idx]), int(parts[idx+1]), int(parts[idx+2]), int(parts[idx+3]), int(parts[idx+4])]
                             
@@ -625,32 +642,33 @@ def read_serial_data():
                                 data["eps"]["i_comms"], data["eps"]["temp"],
                                 data["env"]["pressure"], data["env"]["humidity"], data["gps"]["alt"],
                                 data["sd"]["obc"], data["sd"]["payload"], data["resolution"],
-                                data["ir_zones"][0], data["ir_zones"][1], data["ir_zones"][2],
-                                data["ir_zones"][3], data["ir_zones"][4]
+                                data.get("ir_zones", [0,0,0,0,0])[0], data.get("ir_zones", [0,0,0,0,0])[1], 
+                                data.get("ir_zones", [0,0,0,0,0])[2], data.get("ir_zones", [0,0,0,0,0])[3], 
+                                data.get("ir_zones", [0,0,0,0,0])[4]
                             ))
                             conn.commit()
                             conn.close()
 
-                            # 3. Send to UI (UI will ONLY scan this for alarms, not update gauges)
                             socketio.emit('telemetry_update', data)
                     except Exception as e: 
                         print(f"TLM Parse error: {e}")
                 
                 # --- ROUTE 2: GSN HISTORICAL DATA REQUEST ---
                 elif line.startswith("GSN_RCV,"):
-                    # 1. Save to CSV Cold Backup
                     with open(gsn_filepath, 'a') as f:
                         f.write(line + "\n")
                     
                     try:
                         parts = line.split(',')
                         if len(parts) >= 12:
+                            def parse_int(val): return int(val) if val.strip() != "" else None
+                            
                             gsn_data = {
                                 "type": "GSN_UPDATE",
                                 "gsn": {
                                     "timestamp": parts[1],
                                     "node_id": parts[2],
-                                    "rssi": int(parts[3]),
+                                    "rssi": parse_int(parts[3]), # <-- Safely handles blanks
                                     "temp": float(parts[4]),
                                     "hum": float(parts[5]),
                                     "soil": int(parts[6]),

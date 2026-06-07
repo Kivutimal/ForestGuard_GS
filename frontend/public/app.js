@@ -116,7 +116,8 @@ window.setChartMode = function(mode) {
     window.chartMode = mode;
     const btnLive = document.getElementById('btn-mode-live');
     const btnHist = document.getElementById('btn-mode-hist');
-    const btnRefresh = document.getElementById('btn-refresh-hist');
+    const histControls = document.getElementById('history-controls');
+    const groupSelect = document.getElementById('chart-group');
 
     if (!btnLive || !btnHist) return;
 
@@ -125,7 +126,19 @@ window.setChartMode = function(mode) {
         btnLive.style.color = 'var(--success-green)';
         btnHist.style.background = 'transparent';
         btnHist.style.color = '#8a9ba8';
-        if(btnRefresh) btnRefresh.style.display = 'none';
+        
+        if (histControls) histControls.style.display = 'none'; 
+        
+        // SMART UI: Disable deep metrics that the Live Beacon doesn't transmit
+        if (groupSelect) {
+            Array.from(groupSelect.options).forEach(opt => {
+                opt.disabled = ['currents', 'gsn'].includes(opt.value);
+            });
+            if (['currents', 'gsn'].includes(groupSelect.value)) {
+                groupSelect.value = 'rssi';
+                window.updateChartDropdowns();
+            }
+        }
         
         // Clear chart for the fresh live feed
         if (window.signalChart) {
@@ -133,28 +146,88 @@ window.setChartMode = function(mode) {
             window.signalChart.data.datasets.forEach(ds => ds.data = []);
             window.signalChart.update();
         }
+
+        // --- NEW: WIPE GAUGES CLEAN WHEN RETURNING TO LIVE MODE ---
+        // 1. Reset Core Gauges to "--"
+        const coreIds = ['val-eps-soc', 'val-eps-vbat', 'val-eps-3v3', 'val-env-press', 'val-gps-alt', 'val-gps-lat', 'val-gps-lng'];
+        coreIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = '--';
+        });
+
+        // 2. Return deep metrics to STANDBY
+        const standbyIds = [
+            'val-eps-iin', 'val-eps-iout', 'val-eps-5v1', 'val-eps-5v2', 'val-eps-5v3',
+            'val-eps-ipayload', 'val-eps-icomms', 'val-eps-iobc', 'val-env-hum',
+            'val-sd-obc', 'val-sd-pay', 'val-sd-gsn'
+        ];
+        standbyIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<span style="font-size:0.75rem; color:#5a7080; letter-spacing:1px; display:block; margin-top:8px;">STANDBY</span>';
+        });
+
+        // 3. Return GSN metrics to AWAIT_GSN
+        const gsnIds = ['val-gsn-smoke', 'val-gsn-sound', 'val-gsn-soil', 'val-gsn-temp', 'val-gsn-hum', 'val-gsn-bat', 'val-gsn-node'];
+        gsnIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                if (id === 'val-gsn-node') {
+                    el.innerText = 'NODE: --';
+                } else {
+                    el.innerHTML = '<span style="font-size:0.75rem; color:#5a7080; letter-spacing:1px; display:block; margin-top:8px;">AWAIT_GSN</span>';
+                }
+            }
+        });
+
+        // Clear history cache
+        window.lastFetchedTlm = null;
+        window.lastFetchedGsn = null;
+        
     } else {
         btnHist.style.background = 'rgba(102,252,241,0.15)';
         btnHist.style.color = '#66fcf1';
         btnLive.style.background = 'transparent';
         btnLive.style.color = '#8a9ba8';
-        if(btnRefresh) btnRefresh.style.display = 'inline-block';
         
-        loadHistoricalData(); // Fetch the history from the database!
+        if (histControls) histControls.style.display = 'flex'; 
+        
+        // SMART UI: Unlock all dropdown options for the database history
+        if (groupSelect) {
+            Array.from(groupSelect.options).forEach(opt => opt.disabled = false);
+        }
+        
+        loadHistoricalData(); 
     }
 };
 
 window.loadHistoricalData = async function() {
     if (!window.signalChart) return;
     try {
+        let urlTlm = '/api/history/telemetry?limit=100';
+        let urlGsn = '/api/history/gsn?limit=100';
+        
+        // Read the time picker boxes
+        const startStr = document.getElementById('hist-start')?.value.trim();
+        const endStr = document.getElementById('hist-end')?.value.trim();
+        
+        // If the operator typed in both dates, attach them to the API request
+        if (startStr && endStr) {
+            urlTlm += `&start=${startStr}&end=${endStr}`;
+            urlGsn += `&start=${startStr}&end=${endStr}`;
+        }
+
         // Fetch BOTH databases simultaneously!
         const [resTlm, resGsn] = await Promise.all([
-            fetch('/api/history/telemetry?limit=50'),
-            fetch('/api/history/gsn?limit=50')
+            fetch(urlTlm),
+            fetch(urlGsn)
         ]);
         
         const historyTlm = await resTlm.json();
         const historyGsn = await resGsn.json();
+
+        // --- NEW: Save these to memory so our hover function can read them! ---
+        window.lastFetchedTlm = historyTlm;
+        window.lastFetchedGsn = historyGsn;
 
         window.signalChart.data.labels = [];
         window.signalChart.data.datasets.forEach(ds => ds.data = []);
@@ -164,9 +237,14 @@ window.loadHistoricalData = async function() {
             const timeStr = String(row.timestamp).replace("_", " ");
             window.signalChart.data.labels.push(timeStr);
             
-            window.signalChart.data.datasets[0].data.push(row.rssi_gs || 0);
-            window.signalChart.data.datasets[1].data.push(row.rssi_uplink || 0);
+            // 1. Sat Downlink RSSI does NOT exist in the past. Force it to be blank.
+            window.signalChart.data.datasets[0].data.push(null);
             
+            // 2. Uplink RSSI only exists if it's a real negative measurement (e.g., -85). Otherwise, blank.
+            const upRssi = (row.rssi_uplink && row.rssi_uplink < 0) ? row.rssi_uplink : null;
+            window.signalChart.data.datasets[1].data.push(upRssi);
+            
+            // Temperatures
             window.signalChart.data.datasets[3].data.push(row.obc_temp || 0);
             window.signalChart.data.datasets[4].data.push(row.payload_temp || 0);
             window.signalChart.data.datasets[5].data.push(row.eps_temp || 0);
@@ -188,7 +266,10 @@ window.loadHistoricalData = async function() {
             
             // Map the GSN Database row alongside the Telemetry row!
             if (historyGsn[index]) {
-                window.signalChart.data.datasets[2].data.push(historyGsn[index].rssi || 0); // The missing GSN RSSI!
+                // 3. GSN RSSI only exists if it's a real negative measurement.
+                const gsnRssi = (historyGsn[index].rssi && historyGsn[index].rssi < 0) ? historyGsn[index].rssi : null;
+                
+                window.signalChart.data.datasets[2].data.push(gsnRssi);
                 window.signalChart.data.datasets[16].data.push(historyGsn[index].soil || 0);
                 window.signalChart.data.datasets[17].data.push(historyGsn[index].temp || 0);
                 window.signalChart.data.datasets[18].data.push(historyGsn[index].soc || 0);
@@ -201,6 +282,53 @@ window.loadHistoricalData = async function() {
         });
 
         window.signalChart.update();
+
+        window.signalChart.update();
+        
+        // ========================================================
+        // --- STEP B: GLOBAL UI HYDRATION ---
+        // Overwrite the "STANDBY" labels with the historical data!
+        // ========================================================
+        if (historyTlm.length > 0) {
+            const latest = historyTlm[historyTlm.length - 1]; // Grab the newest row in the selected time range
+            
+            // 1. EPS Data
+            if (document.getElementById('val-eps-soc')) document.getElementById('val-eps-soc').innerText = latest.eps_soc.toFixed(1) + '%';
+            if (document.getElementById('val-eps-iin')) document.getElementById('val-eps-iin').innerText = latest.eps_i_in + ' mA';
+            if (document.getElementById('val-eps-iout')) document.getElementById('val-eps-iout').innerText = latest.eps_i_out + ' mA';
+            
+            if (document.getElementById('val-eps-vbat')) document.getElementById('val-eps-vbat').innerText = latest.eps_v_bat.toFixed(2) + ' V';
+            if (document.getElementById('val-eps-3v3')) document.getElementById('val-eps-3v3').innerText = (latest.eps_v_3v3 || 0).toFixed(2) + ' V';
+            if (document.getElementById('val-eps-5v1')) document.getElementById('val-eps-5v1').innerText = (latest.eps_v_5v_1 || 0).toFixed(2) + ' V';
+            if (document.getElementById('val-eps-5v2')) document.getElementById('val-eps-5v2').innerText = (latest.eps_v_5v_2 || 0).toFixed(2) + ' V';
+            if (document.getElementById('val-eps-5v3')) document.getElementById('val-eps-5v3').innerText = (latest.eps_v_5v_3 || 0).toFixed(2) + ' V';
+            
+            if (document.getElementById('val-eps-ipayload')) document.getElementById('val-eps-ipayload').innerText = latest.eps_i_payload + ' mA';
+            if (document.getElementById('val-eps-icomms')) document.getElementById('val-eps-icomms').innerText = latest.eps_i_comms + ' mA';
+            
+            const obcDraw = latest.eps_i_out - (latest.eps_i_payload + latest.eps_i_comms);
+            if (document.getElementById('val-eps-iobc')) document.getElementById('val-eps-iobc').innerText = (obcDraw > 0 ? obcDraw : 0) + ' mA';
+
+            // 2. Flight Dynamics & Environment
+            if (document.getElementById('val-gps-alt')) document.getElementById('val-gps-alt').innerText = latest.gps_alt.toFixed(1) + ' km';
+            if (document.getElementById('val-env-press')) document.getElementById('val-env-press').innerText = latest.env_pressure.toFixed(1) + ' hPa';
+            if (document.getElementById('val-env-hum')) document.getElementById('val-env-hum').innerText = latest.env_humidity.toFixed(1) + ' %';
+            
+            // 3. SD Storage Limits
+            if (document.getElementById('val-sd-obc')) document.getElementById('val-sd-obc').innerText = (latest.obc_sd || 0).toFixed(1) + '%';
+            if (document.getElementById('val-sd-pay')) document.getElementById('val-sd-pay').innerText = (latest.payload_sd || 0).toFixed(1) + '%';
+            
+            // Mark Lat/Lng so the user knows they aren't live
+            if (document.getElementById('val-gps-lat')) document.getElementById('val-gps-lat').innerText = 'HISTORY';
+            if (document.getElementById('val-gps-lng')) document.getElementById('val-gps-lng').innerText = 'HISTORY';
+        }
+
+        // 4. GSN UI Hydration
+        if (historyGsn.length > 0) {
+            // Re-use your existing awesome GSN UI updater!
+            updateGsnUI(historyGsn[historyGsn.length - 1]);
+        }
+        // ========================================================
         
         // Force the text to update immediately after drawing the chart
         const currentGroup = document.getElementById('chart-group').value;
@@ -223,10 +351,13 @@ if (chartElement) {
             labels:[],
             datasets:[
                 // 0-2: RSSI
+                // Downlink is a normal line, but will ONLY be fed data during Live mode
                 { label: 'Sat Downlink RSSI', data: [], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
-                { label: 'GS Uplink RSSI', data:[], borderColor: '#00ff00', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
-                { label: 'GSN Node RSSI', data:[], borderColor: '#f1c40f', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: false, pointRadius: 1 },
                 
+                // Uplink and GSN are isolated events! Drawn as thin vertical impulse bars.
+                { type: 'bar', label: 'GS Uplink RSSI', data:[], backgroundColor: 'rgba(0, 255, 0, 0.5)', borderColor: '#00ff00', borderWidth: 1, hidden: false, maxBarThickness: 6 },
+                { type: 'bar', label: 'GSN Node RSSI', data:[], backgroundColor: 'rgba(241, 196, 15, 0.5)', borderColor: '#f1c40f', borderWidth: 1, hidden: false, maxBarThickness: 6 },
+
                 // 3-5: Temperatures
                 { label: 'OBC Temp', data:[], borderColor: '#66fcf1', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
                 { label: 'Payload Temp', data:[], borderColor: '#e74c3c', backgroundColor: 'transparent', fill: false, tension: 0.4, hidden: true, pointRadius: 1 },
@@ -258,8 +389,29 @@ if (chartElement) {
         options: { 
             maintainAspectRatio: false, 
             plugins: { legend: { display: false } }, 
-            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' } } } 
+            scales: { x: { display: false }, y: { grid: { color: 'rgba(255,255,255,0.05)' } } },
+            
+            // --- NEW: INTERACTIVE SNAPPING (NO MORE BLIND HOVERING) ---
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+
+            // --- NEW: HOVER TIME MACHINE ---
+            onHover: (event, activeElements) => {
+                // Only scrub values when we are looking at History Mode!
+                if (window.chartMode !== 'history') return; 
+                
+                if (activeElements && activeElements.length > 0) {
+                    const hoveredIndex = activeElements[0].index;
+                    updateGaugesFromIndex(hoveredIndex);
+                } else {
+                    // When the mouse leaves the chart, snap back to the latest snapshot
+                    resetGaugesToLatest();
+                }
+            }
         }
+
     });
 }
 
@@ -309,11 +461,14 @@ window.updateLiveTextValueDisplay = function(group, metricName) {
             const dataset = window.signalChart.data.datasets[idx];
             if (dataset && dataset.data.length > 0) {
                 let val = dataset.data[dataset.data.length - 1]; // Get latest point from chart
+                if (val === null || val === undefined) return "--"; // <-- Safely hides nulls!
                 return typeof val === 'number' ? val.toFixed(1) : val;
             }
             return "--";
         } else {
-            return latestTelemetryCache[idx] !== undefined ? latestTelemetryCache[idx] : "--";
+            const val = latestTelemetryCache[idx];
+            if (val === null || val === undefined || val === "--") return "--";
+            return val;
         }
     };
     
@@ -520,7 +675,30 @@ if (socket) {
 // --- NEW: FETCH ALARMS AND GSN ON PAGE LOAD ---
 document.addEventListener("DOMContentLoaded", async () => {
     
-    // 1. Fetch un-acked alarms from the database
+    // Make deep telemetry gauges say 'STANDBY' instead of looking broken
+    const standbyIds = [
+        'val-eps-iin', 'val-eps-iout', 'val-eps-5v1', 'val-eps-5v2', 'val-eps-5v3',
+        'val-eps-ipayload', 'val-eps-icomms', 'val-eps-iobc', 'val-env-hum',
+        'val-sd-obc', 'val-sd-pay', 'val-sd-gsn'
+    ];
+    standbyIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.innerText.includes('--')) {
+            el.innerHTML = '<span style="font-size:0.75rem; color:#5a7080; letter-spacing:1px; display:block; margin-top:8px;">STANDBY</span>';
+        }
+    });
+
+    // Make ground sensor gauges say 'AWAIT_GSN' 
+    const gsnIds = ['val-gsn-smoke', 'val-gsn-sound', 'val-gsn-soil', 'val-gsn-temp', 'val-gsn-hum', 'val-gsn-bat'];
+    gsnIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.innerText.includes('--')) {
+            el.innerHTML = '<span style="font-size:0.75rem; color:#5a7080; letter-spacing:1px; display:block; margin-top:8px;">AWAIT_GSN</span>';
+        }
+    });
+    // ------------------------------------------
+    
+    // Fetch un-acked alarms from the database
     if (document.getElementById('event-log-stack')) {
         try {
             const res = await fetch('/api/active_alarms');
@@ -532,21 +710,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     }
 
-    // 2. NEW: Hydrate GSN UI from Database on load!
-    if (document.getElementById('val-gsn-node')) {
-        try {
-            // Ask the database for just the 1 most recent GSN record
-            const res = await fetch('/api/history/gsn?limit=1');
-            const gsnHistory = await res.json();
-            
-            if (gsnHistory && gsnHistory.length > 0) {
-                // Pass it directly into the UI updater function
-                updateGsnUI(gsnHistory[0]);
-            }
-        } catch (e) {
-            console.log("No historical GSN data found for hydration.");
-        }
+    //NEW: Instantly load last known live data from browser memory
+    const cachedBeacon = sessionStorage.getItem('lastBeacon');
+    if (cachedBeacon) {
+        try { updateLiveBeaconUI(JSON.parse(cachedBeacon)); } catch(e){}
     }
+    
+    const cachedGsn = sessionStorage.getItem('lastGsn');
+    if (cachedGsn) {
+        try { updateGsnUI(JSON.parse(cachedGsn)); } catch(e){}
+    }
+
+    // 4. NEW: Instantly load last known payload resolution from browser memory
+    const cachedRes = sessionStorage.getItem('payloadResolution');
+    if (cachedRes) {
+        updateResolutionBadge(cachedRes);
+    } else {
+        updateResolutionBadge('1080P'); // Default on first boot
+    }
+
 });
 
 // ==============================================================================
@@ -614,6 +796,53 @@ function updateGsnUI(gsn) {
     }
 }
 
+function updateLiveBeaconUI(data) {
+    const satTimeString = String(data.timestamp).replace("_", " ");
+
+    // --- Badges ---
+    const fdirBadge = document.getElementById('badge-fdir-mode');
+    if (fdirBadge) {
+        fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
+        fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
+    }
+    const plBadge = document.getElementById('badge-payload-state');
+    if (plBadge) {
+        if (data.payload_state === 1) {
+            plBadge.innerText = '📸 Payload: IMAGING'; plBadge.style.color = '#f1c40f';
+        } else if (data.payload_state === 2) {
+            plBadge.innerText = '📡 Payload: DOWNLINKING'; plBadge.style.color = '#66fcf1';
+        } else {
+            plBadge.innerText = '💤 Payload: IDLE/OFF'; plBadge.style.color = '#c5c6c7';
+        }
+    }
+
+    // --- Update Core Live Gauges ---
+    if (data.eps) {
+        document.getElementById('val-eps-soc').innerText = data.eps.soc.toFixed(1) + '%';
+        document.getElementById('val-eps-vbat').innerText = data.eps.v_bat.toFixed(2) + ' V';
+        document.getElementById('val-eps-3v3').innerText = data.eps.v_3v3.toFixed(2) + ' V';
+    }
+    if (data.env) {
+        document.getElementById('val-env-press').innerText = data.env.pressure.toFixed(1) + ' hPa';
+    }
+    if (data.gps) {
+        document.getElementById('val-gps-alt').innerText = data.gps.alt.toFixed(1) + ' km';
+    }
+    if (data.lat && data.lng) {
+        document.getElementById('val-gps-lat').innerText = data.lat.toFixed(4) + '°';
+        document.getElementById('val-gps-lng').innerText = data.lng.toFixed(4) + '°';
+        
+        if (satelliteMarker && map && orbitPath) {
+            const pos = [data.lat, data.lng];
+            satelliteMarker.setLatLng(pos);
+            orbitPath.addLatLng(pos);
+            map.panTo(pos, { animate: true, duration: 1.0 });
+        }
+    }
+    
+    checkEPSAnomalies(data.eps, data.obc_temp, null, data.fdir_mode, data.payload_state, data.env, satTimeString);
+}
+
 if (socket) {
     socket.on('telemetry_update', (data) => {
         
@@ -646,51 +875,28 @@ if (socket) {
         // ROUTE A: LIVE BEACON (Updates Gauges & Map)
         // ========================================================
         if (data.type === 'LIVE_BEACON') {
-            const satTimeString = String(data.timestamp).replace("_", " ");
-
-            // --- Badges ---
-            const fdirBadge = document.getElementById('badge-fdir-mode');
-            if (fdirBadge) {
-                fdirBadge.innerText = data.fdir_mode === 'OVERRIDE' ? '🤖 FDIR: OVERRIDE' : '🤖 FDIR: AUTO';
-                fdirBadge.style.color = data.fdir_mode === 'OVERRIDE' ? '#f1c40f' : '#66fcf1'; 
-            }
-            const plBadge = document.getElementById('badge-payload-state');
-            if (plBadge) {
-                if (data.payload_state === 1) {
-                    plBadge.innerText = '📸 Payload: IMAGING'; plBadge.style.color = '#f1c40f';
-                } else if (data.payload_state === 2) {
-                    plBadge.innerText = '📡 Payload: DOWNLINKING'; plBadge.style.color = '#66fcf1';
-                } else {
-                    plBadge.innerText = '💤 Payload: IDLE/OFF'; plBadge.style.color = '#c5c6c7';
-                }
-            }
-
-            // --- Update Core Live Gauges ---
-            if (data.eps) {
-                document.getElementById('val-eps-soc').innerText = data.eps.soc.toFixed(1) + '%';
-                document.getElementById('val-eps-vbat').innerText = data.eps.v_bat.toFixed(2) + ' V';
-                document.getElementById('val-eps-3v3').innerText = data.eps.v_3v3.toFixed(2) + ' V';
-            }
-            if (data.env) {
-                document.getElementById('val-env-press').innerText = data.env.pressure.toFixed(1) + ' hPa';
-            }
-            if (data.gps) {
-                document.getElementById('val-gps-alt').innerText = data.gps.alt.toFixed(1) + ' km';
-            }
-            if (data.lat && data.lng) {
-                document.getElementById('val-gps-lat').innerText = data.lat.toFixed(4) + '°';
-                document.getElementById('val-gps-lng').innerText = data.lng.toFixed(4) + '°';
-                
-                if (satelliteMarker) {
-                    const pos = [data.lat, data.lng];
-                    satelliteMarker.setLatLng(pos);
-                    orbitPath.addLatLng(pos);
-                    map.panTo(pos, { animate: true, duration: 1.0 });
-                }
-            }
+            sessionStorage.setItem('lastBeacon', JSON.stringify(data)); 
             
-            // Check for live brownouts/critical failures
-            checkEPSAnomalies(data.eps, data.obc_temp, null, data.fdir_mode, data.payload_state, data.env, satTimeString);
+            // 1. Update the cache so the text label reads the live RSSI
+            latestTelemetryCache[0] = data.rssi_gs;
+            
+            // 2. If the user is watching the Live Chart, plot it in real-time!
+            if (window.chartMode === 'live' && window.signalChart) {
+                const timeStr = new Date().toLocaleTimeString('en-GB'); // Local time for X-axis
+                
+                window.signalChart.data.labels.push(timeStr);
+                window.signalChart.data.datasets[0].data.push(data.rssi_gs);
+                
+                // Keep the live chart from getting infinitely long (rolling window of 20 points)
+                if (window.signalChart.data.labels.length > 20) {
+                    window.signalChart.data.labels.shift();
+                    window.signalChart.data.datasets[0].data.shift();
+                }
+                
+                window.signalChart.update();
+            }
+
+            updateLiveBeaconUI(data); 
         }
 
         // ========================================================
@@ -713,21 +919,13 @@ if (socket) {
         // ========================================================
         else if (data.type === 'GSN_UPDATE') {
             if (data.gsn) {
-                // 1. Instantly check for alarms (We NEVER delay security alerts!)
                 checkGSNAnomalies(data.gsn);
-
-                // 2. Save to memory for the UI
                 latestGsnData = data.gsn;
+                
+                sessionStorage.setItem('lastGsn', JSON.stringify(data.gsn)); // <-- Save to memory
 
-                // 3. Clear the timer if a new packet just arrived
-                if (gsnUpdateTimer) {
-                    clearTimeout(gsnUpdateTimer);
-                }
-
-                // 4. Set a timer. If no new packets arrive for 200ms, the dump is finished! Draw the UI.
-                gsnUpdateTimer = setTimeout(() => {
-                    updateGsnUI(latestGsnData);
-                }, 200);
+                if (gsnUpdateTimer) clearTimeout(gsnUpdateTimer);
+                gsnUpdateTimer = setTimeout(() => { updateGsnUI(latestGsnData); }, 200);
             }
         }
 
@@ -1047,28 +1245,31 @@ function drawRegions(data) {
 // ==============================================================================
 
 function updateIRSensorUI(ir_array, payload_state) {
-    if (!ir_array || ir_array.length !== 5) return;
-
     const alarmBox = document.getElementById('ir-fire-alarm');
     const angleText = document.getElementById('ir-fire-angle');
     const stowedMsg = document.getElementById('ir-stowed-msg');
     const statusBadge = document.getElementById('ir-status-badge');
     const interpText = document.getElementById('ir-interp');
 
-    // Power budget logic: If payload is OFF, sensor is stowed.
+    // EPS Power Conservation rule: If payload is OFF, the sensor is stowed.
     if (payload_state === 0) {
-        alarmBox.style.display = 'none';
-        stowedMsg.style.display = 'block';
-        stowedMsg.innerText = "Sensor is STOWED. Will activate when Payload powers ON.";
+        if (alarmBox) alarmBox.style.display = 'none';
+        if (stowedMsg) {
+            stowedMsg.style.display = 'block';
+            stowedMsg.innerText = "Sensor is STOWED. Will activate when Payload powers ON.";
+        }
+        if (statusBadge) {
+            statusBadge.className = 'risk-badge risk-low';
+            statusBadge.innerText = 'STANDBY';
+        }
+        if (interpText) {
+            interpText.innerText = 'To conserve the EPS power budget, the SWIR array remains offline until the next scheduled AOI pass.';
+        }
         
-        statusBadge.className = 'risk-badge risk-low';
-        statusBadge.innerText = 'POWER OFF';
-        interpText.innerText = 'To conserve the EPS power budget, the SWIR array remains offline until the next scheduled AOI pass.';
-        
-        // Dim the boxes
+        // Dim all 5 zone boxes
         for (let i = 0; i < 5; i++) {
             const box = document.getElementById(`ir-zone-${i}`);
-            if(box) {
+            if (box) {
                 box.style.borderColor = '#333';
                 box.style.color = '#555';
                 box.style.background = 'rgba(0,0,0,0.4)';
@@ -1078,8 +1279,32 @@ function updateIRSensorUI(ir_array, payload_state) {
         return;
     }
 
-    // Payload is ON! Let's check for 1s and 0s
-    stowedMsg.style.display = 'none';
+    // --- Payload is Powered ON! ---
+    if (stowedMsg) stowedMsg.style.display = 'none';
+
+    // If we have no raw IR array telemetry (because we are on a Live Beacon)
+    if (!ir_array || ir_array.length !== 5) {
+        if (statusBadge) {
+            statusBadge.className = 'risk-badge risk-medium';
+            statusBadge.innerText = 'READY / SCANNING';
+        }
+        if (interpText) {
+            interpText.innerText = 'Payload is active. Baseline SWIR array is warmed up and ready. Awaiting scheduled pass transmission...';
+        }
+        // Wake up the boxes to a sleek standby cyan state
+        for (let i = 0; i < 5; i++) {
+            const box = document.getElementById(`ir-zone-${i}`);
+            if (box) {
+                box.style.borderColor = 'var(--neon-cyan)';
+                box.style.color = 'var(--neon-cyan)';
+                box.style.background = 'rgba(102,252,241,0.05)';
+                box.style.boxShadow = 'none';
+            }
+        }
+        return;
+    }
+
+    // If we DO have raw IR array telemetry (from a database history point or a telemetry dump)
     let fireAngles = [];
     const labels = ["L-60°", "L-30°", "NADIR (CENTER)", "R-30°", "R-60°"];
 
@@ -1088,14 +1313,14 @@ function updateIRSensorUI(ir_array, payload_state) {
         if (!box) continue;
 
         if (ir_array[i] === 1) {
-            // FIRE DETECTED in this zone!
+            // Active thermal anomaly detected!
             box.style.borderColor = '#e74c3c';
             box.style.color = '#fff';
             box.style.background = 'rgba(231,76,60,0.8)';
             box.style.boxShadow = '0 0 15px rgba(231,76,60,0.6)';
             fireAngles.push(labels[i]);
         } else {
-            // Nominal zone
+            // Nominal baseline
             box.style.borderColor = '#66fcf1';
             box.style.color = '#66fcf1';
             box.style.background = 'rgba(0,0,0,0.4)';
@@ -1104,17 +1329,24 @@ function updateIRSensorUI(ir_array, payload_state) {
     }
 
     if (fireAngles.length > 0) {
-        alarmBox.style.display = 'block';
-        angleText.innerText = fireAngles.join(" & ");
-        
-        statusBadge.className = 'risk-badge risk-critical';
-        statusBadge.innerText = 'ACTIVE ALARM';
-        interpText.innerHTML = `<strong>CRITICAL:</strong> High IR intensity detected in zones: ${fireAngles.join(", ")}. Initiating simultaneous high-resolution RGB capture to confirm anomaly.`;
+        if (alarmBox) alarmBox.style.display = 'block';
+        if (angleText) angleText.innerText = fireAngles.join(" & ");
+        if (statusBadge) {
+            statusBadge.className = 'risk-badge risk-critical';
+            statusBadge.innerText = 'ACTIVE ALARM';
+        }
+        if (interpText) {
+            interpText.innerHTML = `<strong>CRITICAL:</strong> High IR intensity detected in zones: ${fireAngles.join(", ")}. Initiating simultaneous high-resolution RGB capture to confirm anomaly.`;
+        }
     } else {
-        alarmBox.style.display = 'none';
-        statusBadge.className = 'risk-badge risk-medium';
-        statusBadge.innerText = 'SCANNING (CLEAR)';
-        interpText.innerText = 'Payload is active. SWIR array is returning nominal baseline values. No thermal anomalies detected in the current swath.';
+        if (alarmBox) alarmBox.style.display = 'none';
+        if (statusBadge) {
+            statusBadge.className = 'risk-badge risk-medium';
+            statusBadge.innerText = 'SCANNING (CLEAR)';
+        }
+        if (interpText) {
+            interpText.innerText = 'Payload is active. SWIR array is returning nominal baseline values. No thermal anomalies detected in the current swath.';
+        }
     }
 }
 
@@ -1403,6 +1635,14 @@ if (socket) {
             entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] TX:</span> <span style="color:var(--neon-cyan); font-weight:bold;">${data.msg}</span>`;
         } else if (data.type === 'rx') {
             entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] RX:</span> <span style="color:#00ff00;">${data.msg}</span>`;
+            
+            // --- NEW: Intercept Command Acknowledgments for Resolution ---
+            if (data.msg.includes("Payload resolution updated to")) {
+                const match = data.msg.match(/updated to (\w+)/);
+                if (match && match[1]) {
+                    updateResolutionBadge(match[1]);
+                }
+            }
         } else if (data.type === 'error') {
             entry.innerHTML = `<span style="color:#5a7080;">[${timeStr}] ERR:</span> <span style="color:var(--danger-red);">${data.msg}</span>`;
         }
@@ -1494,6 +1734,108 @@ window.schedulePayload = function() {
         btnSchedule.innerText = "Scheduled ✓";
     }
 };
+
+// ==============================================================================
+// 13. STICKY TELEMETRY RIBBON TRIGGER (OPTION D)
+// ==============================================================================
+window.addEventListener('scroll', () => {
+    const ribbon = document.getElementById('sticky-telemetry-ribbon');
+    const chartPanel = document.getElementById('chart-container');
+    
+    if (ribbon && chartPanel) {
+        const chartRect = chartPanel.getBoundingClientRect();
+        
+        // If the top of the chart hits the top of the screen (rect.top <= 100px)
+        // AND we are actively looking at historical database records
+        if (window.chartMode === 'history' && chartRect.top <= 100) {
+            ribbon.style.display = 'flex';
+        } else {
+            ribbon.style.display = 'none';
+        }
+    }
+});
+
+// ==============================================================================
+// 14. HOVER WORKSPACE HYDRATION (TIME MACHINE SCRUBBING)
+// ==============================================================================
+function updateGaugesFromIndex(index) {
+    if (!window.lastFetchedTlm || !window.lastFetchedTlm[index]) return;
+    
+    const latest = window.lastFetchedTlm[index];
+    const gsnRow = (window.lastFetchedGsn && window.lastFetchedGsn[index]) ? window.lastFetchedGsn[index] : null;
+    
+    const formattedTime = String(latest.timestamp).replace("_", " ");
+
+    // --- Update Sticky Ribbon Time ---
+    if (document.getElementById('rib-time')) document.getElementById('rib-time').innerText = formattedTime;
+
+    // --- 1. EPS Data (Main page & Sticky Ribbon) ---
+    if (document.getElementById('val-eps-soc')) document.getElementById('val-eps-soc').innerText = latest.eps_soc.toFixed(1) + '%';
+    if (document.getElementById('rib-eps-soc')) document.getElementById('rib-eps-soc').innerText = latest.eps_soc.toFixed(1) + '%';
+    
+    if (document.getElementById('val-eps-iin')) document.getElementById('val-eps-iin').innerText = latest.eps_i_in + ' mA';
+    if (document.getElementById('val-eps-iout')) document.getElementById('val-eps-iout').innerText = latest.eps_i_out + ' mA';
+    if (document.getElementById('rib-eps-iout')) document.getElementById('rib-eps-iout').innerText = latest.eps_i_out + ' mA';
+    
+    if (document.getElementById('val-eps-vbat')) document.getElementById('val-eps-vbat').innerText = latest.eps_v_bat.toFixed(2) + ' V';
+    if (document.getElementById('rib-eps-vbat')) document.getElementById('rib-eps-vbat').innerText = latest.eps_v_bat.toFixed(2) + ' V';
+    
+    if (document.getElementById('val-eps-3v3')) document.getElementById('val-eps-3v3').innerText = (latest.eps_v_3v3 || 0).toFixed(2) + ' V';
+    if (document.getElementById('val-eps-5v1')) document.getElementById('val-eps-5v1').innerText = (latest.eps_v_5v_1 || 0).toFixed(2) + ' V';
+    if (document.getElementById('val-eps-5v2')) document.getElementById('val-eps-5v2').innerText = (latest.eps_v_5v_2 || 0).toFixed(2) + ' V';
+    if (document.getElementById('val-eps-5v3')) document.getElementById('val-eps-5v3').innerText = (latest.eps_v_5v_3 || 0).toFixed(2) + ' V';
+    
+    if (document.getElementById('val-eps-ipayload')) document.getElementById('val-eps-ipayload').innerText = latest.eps_i_payload + ' mA';
+    if (document.getElementById('val-eps-icomms')) document.getElementById('val-eps-icomms').innerText = latest.eps_i_comms + ' mA';
+    
+    const obcDraw = latest.eps_i_out - (latest.eps_i_payload + latest.eps_i_comms);
+    if (document.getElementById('val-eps-iobc')) document.getElementById('val-eps-iobc').innerText = (obcDraw > 0 ? obcDraw : 0) + ' mA';
+
+    // --- 2. Temperatures (Main page handles these dynamically, Ribbon displays them) ---
+    if (document.getElementById('rib-obc-temp')) document.getElementById('rib-obc-temp').innerText = latest.obc_temp.toFixed(1) + '°C';
+    if (document.getElementById('rib-pay-temp')) document.getElementById('rib-pay-temp').innerText = latest.payload_temp.toFixed(1) + '°C';
+
+    // --- 3. Flight Dynamics & Environment ---
+    if (document.getElementById('val-gps-alt')) document.getElementById('val-gps-alt').innerText = latest.gps_alt.toFixed(1) + ' km';
+    if (document.getElementById('val-env-press')) document.getElementById('val-env-press').innerText = latest.env_pressure.toFixed(1) + ' hPa';
+    if (document.getElementById('val-env-hum')) document.getElementById('val-env-hum').innerText = latest.env_humidity.toFixed(1) + ' %';
+    
+    // --- 4. SD Storage Limits ---
+    if (document.getElementById('val-sd-obc')) document.getElementById('val-sd-obc').innerText = (latest.obc_sd || 0).toFixed(1) + '%';
+    if (document.getElementById('val-sd-pay')) document.getElementById('val-sd-pay').innerText = (latest.payload_sd || 0).toFixed(1) + '%';
+    
+    // --- 5. GSN UI Hydration (Main page & Sticky Ribbon) ---
+    if (gsnRow) {
+        updateGsnUI(gsnRow);
+        if (document.getElementById('rib-gsn-node')) {
+            document.getElementById('rib-gsn-node').innerText = `${gsnRow.node_id} (${gsnRow.rssi !== null ? gsnRow.rssi + ' dBm' : 'NO_SIG'})`;
+        }
+    } else {
+        if (document.getElementById('rib-gsn-node')) document.getElementById('rib-gsn-node').innerText = '--';
+    }
+}
+
+function resetGaugesToLatest() {
+    if (window.lastFetchedTlm && window.lastFetchedTlm.length > 0) {
+        updateGaugesFromIndex(window.lastFetchedTlm.length - 1);
+    }
+}
+
+// ==============================================================================
+// 15. PAYLOAD RESOLUTION STATE MACHINE
+// ==============================================================================
+function updateResolutionBadge(res) {
+    const formatted = String(res).toLowerCase().endsWith('p') ? res : res + 'p';
+    
+    // Save to browser memory unconditionally (so it survives cross-page switches!)
+    sessionStorage.setItem('payloadResolution', formatted.toUpperCase());
+    
+    // Only update the physical screen element if it exists on the current page
+    const badge = document.getElementById('badge-resolution');
+    if (badge) {
+        badge.innerText = `📐 Res: ${formatted}`;
+    }
+}
 
 // ── Initialization ──
 if (document.getElementById('sample-select')) {
